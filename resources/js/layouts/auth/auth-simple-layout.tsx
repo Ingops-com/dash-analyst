@@ -11,7 +11,7 @@ export default function AuthSimpleLayout({ children }: PropsWithChildren) {
                     <CardContent className='p-8'>
                         <div className='mb-8 flex justify-center'>
                             <Link href='/'>
-                                <AppLogoIcon className='h-8' />
+                                <AppLogoIcon className='w-full' />
                             </Link>
                         </div>
                         {children}

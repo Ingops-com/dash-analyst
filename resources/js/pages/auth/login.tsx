@@ -10,6 +10,13 @@ import { register } from '@/routes';
 import { request } from '@/routes/password';
 import { Form, Head } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 
 interface LoginProps {
     status?: string;
@@ -60,6 +67,21 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                                 />
                                 <InputError message={errors.password} />
                             </div>
+
+                            <div className="grid gap-2">
+                                <Label htmlFor="role">Rol</Label>
+                                <Select name="role">
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Selecciona un rol" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="admin">Administrador</SelectItem>
+                                        <SelectItem value="analyst">Analista</SelectItem>
+                                        <SelectItem value="user">Usuario</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
 
                             <div className="flex items-center space-x-3">
                                 <Checkbox id="remember" name="remember" tabIndex={3} />
