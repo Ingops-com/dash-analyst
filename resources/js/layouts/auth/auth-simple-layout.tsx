@@ -6,7 +6,7 @@ import AppLogoIcon from '@/components/app-logo-icon'
 export default function AuthSimpleLayout({ children }: PropsWithChildren) {
     return (
         <main className='grid min-h-screen place-content-center bg-background text-foreground'>
-            <div className='w-full max-w-sm px-4'>
+            <div className='w-sm px-4'>
                 <Card className='rounded-xl border-border/60'>
                     <CardContent className='p-8'>
                         <div className='mb-8 flex justify-center'>
