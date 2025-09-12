@@ -113,7 +113,7 @@ export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit }) {
                         <Select onValueChange={handleSelectChange} value={formData.rol}>
                             <SelectTrigger className="col-span-3"><SelectValue /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="Administrador">Administrador</SelectItem>
+                                <SelectItem value="Usuario">Usuario</SelectItem>
                                 <SelectItem value="Analista">Analista</SelectItem>
                             </SelectContent>
                         </Select>

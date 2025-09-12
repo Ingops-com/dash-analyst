@@ -27,7 +27,7 @@ const initialUsers = [
         id: 1,
         nombre: 'Juan Perez',
         username: 'jperez',
-        rol: 'Administrador',
+        rol: 'Usuario',
         correo: 'juan.perez@example.com',
         nir_empresa: '12345',
         habilitado: true,
