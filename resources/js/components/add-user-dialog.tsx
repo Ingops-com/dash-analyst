@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -17,15 +17,44 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { Separator } from './ui/separator';
+import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 
-export function AddUserDialog({ isOpen, onClose, onAddUser }) {
-    const [formData, setFormData] = useState({
-        nombre: '',
-        username: '',
-        password: '',
-        correo: '',
-        rol: 'Analista',
-    });
+
+// Dummy data for companies. In a real app, this would come from an API.
+const allCompanies = [
+    { id: 1, logo: 'https://via.placeholder.com/40', nombre: 'Tech Solutions S.A.', nit: '900.123.456-7' },
+    { id: 2, logo: 'https://via.placeholder.com/40', nombre: 'Innovate Corp', nit: '800.789.123-4' },
+    { id: 3, logo: 'https://via.placeholder.com/40', nombre: 'Global Logistics', nit: '901.234.567-8' },
+];
+
+const defaultFormState = {
+    nombre: '',
+    username: '',
+    password: '',
+    correo: '',
+    rol: 'Analista',
+    empresasAsociadas: [],
+};
+
+export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit }) {
+    const [formData, setFormData] = useState(defaultFormState);
+    const [companySearch, setCompanySearch] = useState('');
+
+    useEffect(() => {
+        if (userToEdit) {
+            setFormData({
+                nombre: userToEdit.nombre || '',
+                username: userToEdit.username || '',
+                correo: userToEdit.correo || '',
+                rol: userToEdit.rol || 'Analista',
+                empresasAsociadas: userToEdit.empresasAsociadas || [],
+                password: '', // Password should be empty for editing
+            });
+        } else {
+            setFormData(defaultFormState);
+        }
+    }, [userToEdit, isOpen]);
 
     const handleChange = (e) => {
         const { id, value } = e.target;
@@ -37,60 +66,52 @@ export function AddUserDialog({ isOpen, onClose, onAddUser }) {
     };
 
     const handleSubmit = () => {
-        onAddUser(formData);
-        onClose();
-        // Reset form after submission
-        setFormData({
-            nombre: '',
-            username: '',
-            password: '',
-            correo: '',
-            rol: 'Analista',
-        });
+        onSaveUser(formData);
     };
+
+    const toggleEmpresa = (empresaId) => {
+        const newEmpresas = formData.empresasAsociadas.includes(empresaId)
+            ? formData.empresasAsociadas.filter(id => id !== empresaId)
+            : [...formData.empresasAsociadas, empresaId];
+        setFormData(prev => ({ ...prev, empresasAsociadas: newEmpresas }));
+    };
+
+    const filteredCompanies = allCompanies.filter(c =>
+        c.nombre.toLowerCase().includes(companySearch.toLowerCase()) ||
+        c.nit.toLowerCase().includes(companySearch.toLowerCase())
+    );
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
-                    <DialogTitle>Agregar Nuevo Usuario</DialogTitle>
+                    <DialogTitle>{userToEdit ? 'Editar Usuario' : 'Agregar Nuevo Usuario'}</DialogTitle>
                     <DialogDescription>
-                        Completa los campos para agregar un nuevo usuario al sistema.
+                        {userToEdit ? 'Modifica los datos del usuario.' : 'Completa los campos para agregar un nuevo usuario.'}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
+                    {/* Base Form Fields */}
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="nombre" className="text-right">
-                            Nombre
-                        </Label>
+                        <Label htmlFor="nombre" className="text-right">Nombre</Label>
                         <Input id="nombre" value={formData.nombre} onChange={handleChange} className="col-span-3" />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="username" className="text-right">
-                            Usuario
-                        </Label>
+                        <Label htmlFor="username" className="text-right">Usuario</Label>
                         <Input id="username" value={formData.username} onChange={handleChange} className="col-span-3" />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="password" name="password" className="text-right">
-                            Contraseña
-                        </Label>
-                        <Input id="password" type="password" value={formData.password} onChange={handleChange} className="col-span-3" />
+                        <Label htmlFor="password" className="text-right">Contraseña</Label>
+                        <Input id="password" type="password" value={formData.password} onChange={handleChange} className="col-span-3" placeholder={userToEdit ? 'Dejar en blanco para no cambiar' : ''} />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="correo" className="text-right">
-                            Correo
-                        </Label>
+                        <Label htmlFor="correo" className="text-right">Correo</Label>
                         <Input id="correo" type="email" value={formData.correo} onChange={handleChange} className="col-span-3" />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="rol" className="text-right">
-                            Rol
-                        </Label>
-                        <Select onValueChange={handleSelectChange} defaultValue={formData.rol}>
-                            <SelectTrigger className="col-span-3">
-                                <SelectValue placeholder="Selecciona un rol" />
-                            </SelectTrigger>
+                        <Label htmlFor="rol" className="text-right">Rol</Label>
+                        <Select onValueChange={handleSelectChange} value={formData.rol}>
+                            <SelectTrigger className="col-span-3"><SelectValue /></SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="Administrador">Administrador</SelectItem>
                                 <SelectItem value="Analista">Analista</SelectItem>
@@ -98,8 +119,53 @@ export function AddUserDialog({ isOpen, onClose, onAddUser }) {
                         </Select>
                     </div>
                 </div>
+
+                {/* Conditional Section for "Analista" role */}
+                {formData.rol === 'Analista' && (
+                    <>
+                        <Separator />
+                        <div className="space-y-4 pt-4">
+                            <div>
+                                <h4 className="font-medium">Asignar Empresas</h4>
+                                <p className="text-sm text-muted-foreground">Habilita las empresas que este analista puede gestionar.</p>
+                            </div>
+                            <Input
+                                placeholder="Buscar empresa por nombre o NIT..."
+                                value={companySearch}
+                                onChange={e => setCompanySearch(e.target.value)}
+                            />
+                            <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
+                                {filteredCompanies.map(empresa => {
+                                    const isEnabled = formData.empresasAsociadas.includes(empresa.id);
+                                    return (
+                                        <div key={empresa.id} className="flex items-center justify-between p-2 border rounded-md">
+                                            <div className="flex items-center gap-3">
+                                                <Avatar>
+                                                    <AvatarImage src={empresa.logo} alt={empresa.nombre} />
+                                                    <AvatarFallback>{empresa.nombre.substring(0, 2)}</AvatarFallback>
+                                                </Avatar>
+                                                <div>
+                                                    <p className="font-semibold">{empresa.nombre}</p>
+                                                    <p className="text-xs text-muted-foreground">{empresa.nit}</p>
+                                                </div>
+                                            </div>
+                                            <Button
+                                                variant={isEnabled ? 'secondary' : 'outline'}
+                                                size="sm"
+                                                onClick={() => toggleEmpresa(empresa.id)}
+                                            >
+                                                {isEnabled ? 'Deshabilitar' : 'Habilitar'}
+                                            </Button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </>
+                )}
+
                 <DialogFooter>
-                    <Button type="submit" onClick={handleSubmit}>Guardar Usuario</Button>
+                    <Button type="submit" onClick={handleSubmit}>Guardar Cambios</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
