@@ -17,8 +17,8 @@ import { AddCompanyDialog } from '@/components/add-company-dialog';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
-        title: 'Empresas',
-        href: '/empresas',
+        title: 'Lista Empresas',
+        href: '/lista-empresas',
     },
 ];
 

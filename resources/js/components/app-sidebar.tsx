@@ -5,7 +5,7 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, Sid
 import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { Files, Users, LayoutGrid, Building2,BookOpenCheck, FileSliders } from 'lucide-react';
+import { Files, Users, LayoutGrid, Building2, BookOpenCheck, FileSliders } from 'lucide-react';
 import AppLogo from './app-logo';
 
 const mainNavItems: NavItem[] = [
@@ -18,16 +18,16 @@ const mainNavItems: NavItem[] = [
         href: '/lista-usuarios', // Actualizado
         icon: Users,
     }, {
+        title: 'Lista de Empresas',
+        href: '/lista-empresas', // Actualizado
+        icon: Building2,
+    }, {
         title: 'Documentos de Usuarios',
         href: '/documentos-usuarios', // Actualizado
         icon: Files,
     }, {
-        title: 'Empresas',
-        href: '/empresas', // Actualizado
-        icon: Building2,
-    }, {
-        title: 'Documentos de Programas',
-        href: '/documentos-programas', // Actualizado
+        title: 'Programas',
+        href: '/programas', // Actualizado
         icon: BookOpenCheck,
     }, {
         title: 'Listado Maestro',
