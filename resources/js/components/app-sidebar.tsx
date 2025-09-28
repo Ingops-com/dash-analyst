@@ -5,34 +5,19 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, Sid
 import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { Files, Users, LayoutGrid, Building2, BookOpenCheck, FileSliders } from 'lucide-react';
+import { LayoutGrid, Building2 } from 'lucide-react';
 import AppLogo from './app-logo';
 
 const mainNavItems: NavItem[] = [
     {
         title: 'Dashboard',
-        href: '/dashboard', // Actualizado
+        href: '/dashboard',
         icon: LayoutGrid,
-    }, {
-        title: 'Lista de Usuarios',
-        href: '/lista-usuarios', // Actualizado
-        icon: Users,
-    }, {
-        title: 'Lista de Empresas',
-        href: '/lista-empresas', // Actualizado
+    },
+    {
+        title: 'Empresas',
+        href: '/lista-empresas',
         icon: Building2,
-    }, {
-        title: 'Documentos de Usuarios',
-        href: '/documentos-usuarios', // Actualizado
-        icon: Files,
-    }, {
-        title: 'Programas',
-        href: '/programas', // Actualizado
-        icon: BookOpenCheck,
-    }, {
-        title: 'Listado Maestro',
-        href: '/listado-maestro', // Actualizado
-        icon: FileSliders,
     },
 ];
 
