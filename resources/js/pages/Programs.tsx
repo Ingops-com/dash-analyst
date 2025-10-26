@@ -15,48 +15,75 @@ import { AddAnnexDialog } from '@/components/add-annex-dialog';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Programas', href: '/programas' }];
 
+// Type definitions
+
 // Dummy data...
-const initialPrograms = [
-    { id: 1, nombre: 'Gestión de Calidad Alimentaria', version: '2.1', codigo: 'P-GCA-001', fecha: '2024-08-15', tipo: 'ISO 22000', color: 'bg-blue-500' },
-    { id: 2, nombre: 'Buenas Prácticas de Saneamiento', version: '1.5', codigo: 'P-BPS-002', fecha: '2024-07-20', tipo: 'PSB', color: 'bg-green-500' },
-    { id: 3, nombre: 'Control de Etiquetado y Empaque', version: '1.0', codigo: 'P-CEE-003', fecha: '2024-09-01', tipo: 'Invima', color: 'bg-red-500' },
-];
+// Types moved to top for clarity
+type Annex = {
+    id: number;
+    nombre: string;
+    codigo_anexo: string;
+    tipo: string;
+    consecutivo: number;
+    programId: number;
+};
 
-const initialAnnexes = [
-    { id: 101, nombre: 'Registro de Temperaturas', codigo_anexo: 'A-RT-01', tipo: 'ISO 22000', consecutivo: 1, programId: 1 },
-    { id: 102, nombre: 'Checklist de Limpieza', codigo_anexo: 'A-CL-02', tipo: 'PSB', consecutivo: 2, programId: 1 },
-    { id: 201, nombre: 'Plan de Fumigación', codigo_anexo: 'A-PF-03', tipo: 'Invima', consecutivo: 1, programId: 2 },
-    { id: 103, nombre: 'Formato de No Conformidad', codigo_anexo: 'A-FNC-04', tipo: 'ISO 22000', consecutivo: 3, programId: 1 },
-];
+type Program = {
+    id: number;
+    nombre: string;
+    version: string;
+    codigo: string;
+    fecha: string;
+    tipo: string;
+    color: string;
+    annexes: Annex[];
+};
 
-// Annex Card Component
-const AnnexCard = ({ anexo }) => (
+type Props = {
+    programs: Program[];
+};
+
+// Component Definition
+
+const AnnexCard = ({ anexo }: { anexo: Annex }) => (
     <Card className="bg-muted/40">
         <CardHeader className="py-3 px-4">
             <CardTitle className="text-sm font-semibold">{anexo.nombre}</CardTitle>
             <CardDescription className="text-xs">{anexo.codigo_anexo}</CardDescription>
         </CardHeader>
         <CardFooter className="py-2 px-4 flex justify-between text-xs text-muted-foreground">
-            {/* --- TEXT CHANGED HERE --- */}
             <span>{anexo.tipo}</span>
             <span>Consecutivo: #{anexo.consecutivo}</span>
         </CardFooter>
     </Card>
 );
 
-export default function Programs() {
-    const [programs, setPrograms] = useState(initialPrograms);
-    const [annexes, setAnnexes] = useState(initialAnnexes);
+export default function Programs({ programs: serverPrograms }: Props) {
     const [nameFilter, setNameFilter] = useState('');
     const [codeFilter, setCodeFilter] = useState('');
     const [isAddProgramOpen, setIsAddProgramOpen] = useState(false);
     const [isAddAnnexOpen, setIsAddAnnexOpen] = useState(false);
+    const [programs, setPrograms] = useState<Program[]>(serverPrograms);
 
-    const filteredPrograms = programs.filter(p => p.nombre.toLowerCase().includes(nameFilter.toLowerCase()) && p.codigo.toLowerCase().includes(codeFilter.toLowerCase()));
+    const filteredPrograms = programs.filter((p: Program) => 
+        p.nombre.toLowerCase().includes(nameFilter.toLowerCase()) && 
+        p.codigo.toLowerCase().includes(codeFilter.toLowerCase())
+    );
 
-    // Handlers for saving data from dialogs (updates dummy data state)
-    const handleSaveProgram = (data) => { setPrograms([...programs, { ...data, id: programs.length + 1, color: 'bg-gray-500' }]); };
-    const handleSaveAnnex = (data) => { console.log('New Annex:', data); /* Add logic to create annex and link it */ };
+    // --- HANDLERS ---
+    const handleSaveProgram = (data: Omit<Program, 'id' | 'color' | 'annexes'>) => {
+        setPrograms([...programs, { 
+            ...data, 
+            id: Math.max(0, ...programs.map(p => p.id)) + 1,
+            color: 'bg-gray-500',
+            annexes: []
+        }]);
+    };
+
+    const handleSaveAnnex = (data: Omit<Annex, 'id'>) => {
+        console.log('New Annex:', data);
+        /* Add logic to create annex and link it */
+    };
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -77,10 +104,9 @@ export default function Programs() {
                 </div>
 
                 <div className="space-y-6">
-                    {filteredPrograms.map((program) => {
-                        const programAnnexes = annexes.filter(anexo => anexo.programId === program.id);
-                        const visibleAnnexes = programAnnexes.slice(0, 5);
-                        const hiddenAnnexes = programAnnexes.slice(5);
+                    {filteredPrograms.map((program: Program) => {
+                        const visibleAnnexes = program.annexes.slice(0, 3);
+                        const hiddenAnnexes = program.annexes.slice(3);
 
                         return (
                             <Card key={program.id} className="overflow-hidden">
@@ -96,15 +122,15 @@ export default function Programs() {
                                         <CardContent>
                                             <Separator className="mb-4" />
                                             <h4 className="text-sm font-semibold mb-3 text-muted-foreground">Anexos Vinculados</h4>
-                                            {programAnnexes.length > 0 ? (
+                                            {program.annexes.length > 0 ? (
                                                 <Collapsible>
                                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                                                        {visibleAnnexes.map(anexo => <AnnexCard key={anexo.id} anexo={anexo} />)}
+                                                        {visibleAnnexes.map((anexo: Annex) => <AnnexCard key={anexo.id} anexo={anexo} />)}
                                                     </div>
                                                     {hiddenAnnexes.length > 0 && (
                                                         <>
                                                             <CollapsibleContent className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mt-4">
-                                                                {hiddenAnnexes.map(anexo => <AnnexCard key={anexo.id} anexo={anexo} />)}
+                                                                {hiddenAnnexes.map((anexo: Annex) => <AnnexCard key={anexo.id} anexo={anexo} />)}
                                                             </CollapsibleContent>
                                                             <div className="mt-4 flex justify-center">
                                                                 <CollapsibleTrigger asChild>

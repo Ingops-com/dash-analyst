@@ -11,31 +11,11 @@ import { ConfigureProgramsDialog } from '@/components/configure-programs-dialog'
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Listado Maestro', href: '/listado-maestro' }];
 
-// --- DUMMY DATA FOR THE ENTIRE ECOSYSTEM ---
-const allCompanies = [
-    { id: 1, nombre: 'Tech Solutions S.A.', id_empresa: 'TS-001' },
-    { id: 2, nombre: 'Innovate Corp', id_empresa: 'IC-002' },
-    { id: 3, nombre: 'Global Logistics', id_empresa: 'GL-003' },
-];
-
-const allPrograms = [
-    { id: 1, nombre: 'Gestión de Calidad Alimentaria', codigo: 'P-GCA-001', tipo: 'ISO 22000' },
-    { id: 2, nombre: 'Buenas Prácticas de Saneamiento', codigo: 'P-BPS-002', tipo: 'PSB' },
-    { id: 3, nombre: 'Control de Etiquetado y Empaque', codigo: 'P-CEE-003', tipo: 'Invima' },
-];
-
-const allAnnexes = [
-    { id: 101, programId: 1, nombre: 'Registro de Temperaturas', codigo_anexo: 'A-RT-01' },
-    { id: 102, programId: 1, nombre: 'Checklist de Limpieza', codigo_anexo: 'A-CL-02' },
-    { id: 201, programId: 2, nombre: 'Plan de Fumigación', codigo_anexo: 'A-PF-03' },
-    { id: 301, programId: 3, nombre: 'Verificación de Lote', codigo_anexo: 'A-VL-01' },
-];
-
-const initialMasterConfig = {
-    1: { 1: [101, 102], 2: [201] },
-    2: { 1: [101] },
-};
-// --- END OF DUMMY DATA ---
+// Dummy data removed — production reads from server
+const allCompanies: any[] = []
+const allPrograms: any[] = []
+const allAnnexes: any[] = []
+const initialMasterConfig: Record<string, any> = {}
 
 
 export default function MasterList() {

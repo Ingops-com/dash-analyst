@@ -21,30 +21,8 @@ const breadcrumbs: BreadcrumbItem[] = [
     },
 ];
 
-// Dummy data for users
-const initialUsers = [
-    {
-        id: 1,
-        nombre: 'Juan Perez',
-        username: 'jperez',
-        rol: 'Usuario',
-        correo: 'juan.perez@example.com',
-        nir_empresa: '12345',
-        habilitado: true,
-        empresasAsociadas: [],
-    },
-    {
-        id: 2,
-        nombre: 'Maria Lopez',
-        username: 'mlopez',
-        rol: 'Analista',
-        correo: 'maria.lopez@example.com',
-        nir_empresa: '67890',
-        habilitado: false,
-        empresasAsociadas: [1], // ID de la empresa asociada
-    },
-    // Add more users as needed
-];
+// Dummy users removed — production should provide users via server props
+const initialUsers: any[] = []
 
 export default function UsersList() {
     const [users, setUsers] = useState(initialUsers);

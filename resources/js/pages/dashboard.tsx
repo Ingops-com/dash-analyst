@@ -16,32 +16,7 @@ interface Annex { id: number; name: string; type: AnnexType; files: File[] | { n
 interface Program { id: number; companyId: number; name: string; annexes: Annex[]; poes: Poe[] }
 interface Company { id: number; nombre: string; status: 'activa' | 'inactiva'; logos: (string | null)[]; fechaRegistro: string }
 
-// === Mock coherente con Companies + ProgramView ===
-const mockCompanies: Company[] = [
-  { id: 1, nombre: 'Tech Solutions S.A.', status: 'activa', logos: ['/images/logo_der.png','/images/logo_izq.png','/images/logo_footer.png'], fechaRegistro: '2024-08-01' },
-  { id: 2, nombre: 'Innovate Corp', status: 'activa', logos: ['/images/logo_der.png', null, null], fechaRegistro: '2024-07-15' },
-  { id: 3, nombre: 'Global Logistics', status: 'inactiva', logos: ['/images/logo_der.png','/images/logo_izq.png','/images/logo_footer.png'], fechaRegistro: '2024-06-20' },
-]
-
-const mockPrograms: Program[] = [
-  { id: 101, companyId: 1, name: 'Limpieza y Desinfección', annexes: [
-    { id: 1, name: 'Certificado de Fumigación', type: 'PDF', files: [{name:'cert-fumigacion.pdf'}] },
-    { id: 2, name: 'Factura de Insumos', type: 'XLSX', files: [] },
-    { id: 3, name: 'Registro Fotográfico', type: 'IMAGES', files: [{name:'1.jpg'},{name:'2.jpg'}] },
-    { id: 4, name: 'Checklist Interno', type: 'FORMATO', files: [] },
-  ], poes: [{ id: 1, date: '2025-09-10' }] },
-
-  { id: 102, companyId: 2, name: 'Control de Plagas', annexes: [
-    { id: 1, name: 'Acta de Visita', type: 'PDF', files: [] },
-    { id: 2, name: 'Evidencias', type: 'IMAGES', files: [] },
-    { id: 3, name: 'Planilla', type: 'FORMATO', files: [] },
-  ], poes: [] },
-
-  { id: 103, companyId: 3, name: 'Buenas Prácticas', annexes: [
-    { id: 1, name: 'Capacitaciones', type: 'WORD', files: [{name:'capacitacion.docx'}] },
-    { id: 2, name: 'Listado Personal', type: 'XLSX', files: [{name:'personal.xlsx'}] },
-  ], poes: [{ id: 2, date: '2025-08-01' }, { id: 3, date: '2025-08-15' }] },
-]
+// Mock data removed — production code uses server props. Kept definitions removed to avoid showing test data.
 
 // Nota: no llamar hooks en el scope superior. Dentro del componente `Dashboard`
 // usaremos `usePage()` para leer los props que vienen del servidor.
@@ -75,8 +50,9 @@ export default function Dashboard() {
   const { props } = usePage()
   const serverProps = (props ?? {}) as any
 
-  const companies: Company[] = serverProps.companies ?? mockCompanies
-  const programs: Program[] = serverProps.programs ?? mockPrograms
+  // Use server-provided props; fall back to empty arrays to avoid showing mock/test data
+  const companies: Company[] = serverProps.companies ?? []
+  const programs: Program[] = serverProps.programs ?? []
 
   const totalCompanies = companies.length
   const activeCompanies = companies.filter((c) => c.status === 'activa').length

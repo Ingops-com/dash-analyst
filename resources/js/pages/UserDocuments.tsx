@@ -25,25 +25,9 @@ const breadcrumbs: BreadcrumbItem[] = [
     },
 ];
 
-// Dummy data for companies
-const allCompanies = [
-    { id: 1, logo: 'https://via.placeholder.com/40', nombre: 'Tech Solutions S.A.', correo: 'contacto@techsolutions.com', nit_empresa: '900.123.456-7' },
-    { id: 2, logo: 'https://via.placeholder.com/40', nombre: 'Innovate Corp', correo: 'info@innovate.com', nit_empresa: '800.789.123-4' },
-    { id: 3, logo: 'https://via.placeholder.com/40', nombre: 'Global Logistics', correo: 'support@globallogistics.com', nit_empresa: '901.234.567-8' },
-];
-
-// Dummy data for company programs
-const companyProgramsData = {
-    1: [ // Programs for Tech Solutions
-        { id: 101, programa: 'Plan de Gestión de Calidad (PGC)', status: 'Completado' },
-        { id: 102, programa: 'Manual de Identidad Corporativa', status: 'En Progreso' },
-    ],
-    2: [ // Programs for Innovate Corp
-        { id: 201, programa: 'Política de Seguridad de la Información', status: 'Completado' },
-        { id: 202, programa: 'Protocolo de Respuesta a Incidentes', status: 'Pendiente' },
-    ],
-    3: [], // Global Logistics has no programs
-};
+// Dummy data removed — production should provide companies and programs via server
+const allCompanies: any[] = []
+const companyProgramsData: Record<string, any[]> = {}
 
 const CompanyPrograms = ({ companyId }) => {
     const programs = companyProgramsData[companyId] || [];

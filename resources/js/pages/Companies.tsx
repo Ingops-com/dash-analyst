@@ -45,56 +45,8 @@ interface Company {
   notes?: string
 }
 
-// --- DATA MOCK ---
-const companiesData: Company[] = [
-  {
-    id: 1,
-    name: 'Empresa A',
-    nit: '123.456.789-0',
-    representative: 'Juan Pérez',
-    startDate: '2023-01-15',
-    endDate: '2025-01-15',
-    version: '1.0',
-    phone: '3101234567',
-    address: 'Calle Falsa 123',
-    activities: 'Desarrollo de software',
-    logos: ['/images/logo.png', '/images/logo.png', '/images/logo.png'],
-    programs: [
-      { id: 1, code: 'P001', name: 'Programa 1', progress: 75 },
-      { id: 2, code: 'P002', name: 'Programa 2', progress: 50 },
-    ],
-    email: 'contacto@empresaa.com',
-    website: 'https://empresaa.com',
-    altPhone: '6011234567',
-    city: 'Bogotá',
-    country: 'Colombia',
-    industry: 'Tecnología',
-    employeesRange: '11-50',
-    status: 'activa',
-    notes: 'Cliente priorizado. Renovación en Q1.'
-  },
-  {
-    id: 2,
-    name: 'Empresa B',
-    nit: '987.654.321-0',
-    representative: 'Ana Gómez',
-    startDate: '2022-05-20',
-    endDate: '2024-05-20',
-    version: '2.1',
-    phone: '3209876543',
-    address: 'Avenida Siempre Viva 742',
-    activities: 'Consultoría TI',
-    logos: ['/images/logo.png', '/images/logo.png', '/images/logo.png'],
-    programs: [{ id: 5, code: 'PX01', name: 'Programa X', progress: 90 }],
-    email: 'info@empresab.co',
-    website: 'https://empresab.co',
-    city: 'Medellín',
-    country: 'Colombia',
-    industry: 'Consultoría',
-    employeesRange: '51-200',
-    status: 'activa',
-  },
-]
+// Mock data removed — use server props in production
+const companiesData: Company[] = []
 
 // --- HELPERS ---
 const nitClean = (nit: string) => nit.replace(/[^0-9kK]/g, '').toUpperCase()
@@ -133,7 +85,7 @@ export default function Companies() {
   // Leer props enviados por Inertia (si existen) y usar mocks como fallback
   const { props } = usePage()
   const serverProps = (props ?? {}) as any
-  const companies = (serverProps.companies ?? companiesData) as Company[]
+  const companies = (serverProps.companies ?? []) as Company[]
 
   const filteredCompanies = useMemo(() => {
     return companies.filter((company) =>

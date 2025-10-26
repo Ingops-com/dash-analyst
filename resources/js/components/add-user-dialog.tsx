@@ -21,12 +21,8 @@ import { Separator } from './ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 
 
-// Dummy data for companies. In a real app, this would come from an API.
-const allCompanies = [
-    { id: 1, logo: 'https://via.placeholder.com/40', nombre: 'Tech Solutions S.A.', nit: '900.123.456-7' },
-    { id: 2, logo: 'https://via.placeholder.com/40', nombre: 'Innovate Corp', nit: '800.789.123-4' },
-    { id: 3, logo: 'https://via.placeholder.com/40', nombre: 'Global Logistics', nit: '901.234.567-8' },
-];
+// Company mock removed — production should provide this data via server props
+const allCompanies: any[] = []
 
 const defaultFormState = {
     nombre: '',

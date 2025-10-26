@@ -16,16 +16,6 @@ export type AnnexType = 'IMAGES' | 'PDF' | 'WORD' | 'XLSX' | 'FORMATO';
 interface Poe { id: number; date: string }
 interface Annex { id: number; name: string; type: AnnexType; files: any[] }
 interface Program { id: number; name: string; annexes: Annex[]; poes: Poe[] }
-const mockProgramData: Program = {
-  id: 1, name: 'Programa de Limpieza y Desinfección',
-  annexes: [
-    { id: 1, name: 'Certificado de Fumigación', type: 'PDF', files: [] },
-    { id: 2, name: 'Factura de Insumos', type: 'XLSX', files: [] },
-    { id: 3, name: 'Registro Fotográfico', type: 'IMAGES', files: [] },
-    { id: 4, name: 'Checklist Interno', type: 'FORMATO', files: [] },
-    { id: 5, name: 'Memorando Aprobación', type: 'WORD', files: [] },
-  ], poes: [],
-};
 const typeLabel: Record<AnnexType, string> = { IMAGES: 'Imágenes', PDF: 'PDF', WORD: 'Word', XLSX: 'Excel', FORMATO: 'Formato' };
 const typeAccept: Record<AnnexType, string> = { IMAGES: 'image/*', PDF: 'application/pdf', WORD: '.doc,.docx', XLSX: '.xls,.xlsx', FORMATO: '' };
 const typeIcon: Record<AnnexType, any> = { IMAGES: Images, PDF: FileText, WORD: FileText, XLSX: FileDigit, FORMATO: File };
@@ -33,7 +23,20 @@ const typeIcon: Record<AnnexType, any> = { IMAGES: Images, PDF: FileText, WORD: 
 export default function ProgramView() {
   // Usar props enviados por el servidor si existen
   const { props } = usePage()
-  const serverProgram = (props as any).program ?? mockProgramData
+  const serverProgram = (props as any).program ?? null
+
+  // Si no llega programa desde el servidor, no mostrar datos de prueba; avisar claramente
+  if (!serverProgram) {
+    return (
+      <AppLayout>
+        <div className="p-6">
+          <h1 className="text-lg font-semibold">Programa no encontrado</h1>
+          <p className="text-sm text-muted-foreground">No se recibieron datos del servidor para este programa. Verifica la ruta o la carga de datos en el backend.</p>
+        </div>
+      </AppLayout>
+    )
+  }
+
   const [program, setProgram] = useState<Program>(serverProgram as Program);
   const [uploadOpenFor, setUploadOpenFor] = useState<number | null>(null);
   const [viewOpenFor, setViewOpenFor] = useState<{ kind: 'ANNEX' | 'POE' | null; id?: number }>({ kind: null });
