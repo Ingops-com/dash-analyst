@@ -1,6 +1,6 @@
 import AppLayout from '@/layouts/app-layout'
 import { type BreadcrumbItem } from '@/types'
-import { Head } from '@inertiajs/react'
+import { Head, usePage } from '@inertiajs/react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -17,13 +17,13 @@ interface Program { id: number; companyId: number; name: string; annexes: Annex[
 interface Company { id: number; nombre: string; status: 'activa' | 'inactiva'; logos: (string | null)[]; fechaRegistro: string }
 
 // === Mock coherente con Companies + ProgramView ===
-const companies: Company[] = [
+const mockCompanies: Company[] = [
   { id: 1, nombre: 'Tech Solutions S.A.', status: 'activa', logos: ['/images/logo_der.png','/images/logo_izq.png','/images/logo_footer.png'], fechaRegistro: '2024-08-01' },
   { id: 2, nombre: 'Innovate Corp', status: 'activa', logos: ['/images/logo_der.png', null, null], fechaRegistro: '2024-07-15' },
   { id: 3, nombre: 'Global Logistics', status: 'inactiva', logos: ['/images/logo_der.png','/images/logo_izq.png','/images/logo_footer.png'], fechaRegistro: '2024-06-20' },
 ]
 
-const programs: Program[] = [
+const mockPrograms: Program[] = [
   { id: 101, companyId: 1, name: 'Limpieza y Desinfección', annexes: [
     { id: 1, name: 'Certificado de Fumigación', type: 'PDF', files: [{name:'cert-fumigacion.pdf'}] },
     { id: 2, name: 'Factura de Insumos', type: 'XLSX', files: [] },
@@ -43,6 +43,9 @@ const programs: Program[] = [
   ], poes: [{ id: 2, date: '2025-08-01' }, { id: 3, date: '2025-08-15' }] },
 ]
 
+// Nota: no llamar hooks en el scope superior. Dentro del componente `Dashboard`
+// usaremos `usePage()` para leer los props que vienen del servidor.
+
 // === Helpers ===
 const annexCounts = (annexes: Annex[]) => {
   // Excluye FORMATO para progreso, como en ProgramView
@@ -52,13 +55,7 @@ const annexCounts = (annexes: Annex[]) => {
   return { total, completed, percentage: total ? Math.round((completed/total)*100) : 0 }
 }
 
-const totalAnnexDistribution = (() => {
-  const dist: Record<AnnexType, number> = { IMAGES: 0, PDF: 0, WORD: 0, XLSX: 0, FORMATO: 0 }
-  programs.forEach(p => p.annexes.forEach(a => { dist[a.type] = (dist[a.type]||0) + 1 }))
-  return dist
-})()
-
-const totalPoes = programs.reduce((acc, p) => acc + p.poes.length, 0)
+// totalAnnexDistribution and totalPoes se calculan dentro del componente
 
 // Reusable Stat Card
 const StatCard = ({ title, value, icon: Icon, description }: { title: string; value: number | string; icon: any; description?: string }) => (
@@ -75,18 +72,32 @@ const StatCard = ({ title, value, icon: Icon, description }: { title: string; va
 )
 
 export default function Dashboard() {
+  const { props } = usePage()
+  const serverProps = (props ?? {}) as any
+
+  const companies: Company[] = serverProps.companies ?? mockCompanies
+  const programs: Program[] = serverProps.programs ?? mockPrograms
+
   const totalCompanies = companies.length
-  const activeCompanies = companies.filter(c => c.status === 'activa').length
+  const activeCompanies = companies.filter((c) => c.status === 'activa').length
   const programsCount = programs.length
 
   // Anexos (excluye FORMATO al contar completados)
-  const allAnnexes = programs.flatMap(p => p.annexes)
-  const annexesForProgress = allAnnexes.filter(a => a.type !== 'FORMATO')
-  const annexCompleted = annexesForProgress.filter(a => (a.files || []).length > 0).length
+  const allAnnexes = programs.flatMap((p) => p.annexes)
+  const annexesForProgress = allAnnexes.filter((a) => a.type !== 'FORMATO')
+  const annexCompleted = annexesForProgress.filter((a) => (a.files || []).length > 0).length
   const annexTotal = annexesForProgress.length
 
   // Branding completeness (3 logos fijos)
-  const brandingReady = companies.filter(c => (c.logos.filter(Boolean).length === 3)).length
+  const brandingReady = companies.filter((c) => c.logos.filter(Boolean).length === 3).length
+
+  const totalAnnexDistribution = (() => {
+    const dist: Record<AnnexType, number> = { IMAGES: 0, PDF: 0, WORD: 0, XLSX: 0, FORMATO: 0 }
+    programs.forEach((p) => p.annexes.forEach((a) => { dist[a.type] = (dist[a.type] || 0) + 1 }))
+    return dist
+  })()
+
+  const totalPoes = programs.reduce((acc, p) => acc + p.poes.length, 0)
 
   return (
     <AppLayout breadcrumbs={breadcrumbs}>
@@ -117,8 +128,8 @@ export default function Dashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {programs.map(p => {
-                    const company = companies.find(c => c.id === p.companyId)!
+                  {programs.map((p) => {
+                    const company = companies.find((c) => c.id === p.companyId)!
                     const { total, completed, percentage } = annexCounts(p.annexes)
                     return (
                       <TableRow key={p.id}>
@@ -148,7 +159,7 @@ export default function Dashboard() {
                 <CardDescription>Logos requeridos: derecho, izquierdo y pie.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                {companies.map(c => {
+                {companies.map((c) => {
                   const filled = c.logos.filter(Boolean).length
                   const ok = filled === 3
                   return (
@@ -172,7 +183,7 @@ export default function Dashboard() {
                 <CardDescription>Conteo por tipo (incluye FORMATO).</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                {(['IMAGES','PDF','WORD','XLSX','FORMATO'] as AnnexType[]).map(t => (
+                {(['IMAGES','PDF','WORD','XLSX','FORMATO'] as AnnexType[]).map((t) => (
                   <div key={t} className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2">
                       {t==='IMAGES' && <ImageIcon className="h-4 w-4 text-muted-foreground"/>}
@@ -195,7 +206,7 @@ export default function Dashboard() {
                 <CardDescription>Altas más recientes.</CardDescription>
               </CardHeader>
               <CardContent>
-                {companies.slice(0, 3).map(company => (
+                {companies.slice(0, 3).map((company) => (
                   <div key={company.id} className="flex items-center justify-between py-2 border-b last:border-0 text-sm">
                     <div className="flex items-center gap-2">
                       <Badge variant={company.status==='activa' ? 'secondary' : 'outline'}>{company.status}</Badge>

@@ -1,4 +1,5 @@
 import { useState, useMemo, ChangeEvent } from 'react';
+import { usePage } from '@inertiajs/react';
 import AppLayout from '@/layouts/app-layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,9 +14,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 // Tipos, Datos y Helpers (sin cambios)
 export type AnnexType = 'IMAGES' | 'PDF' | 'WORD' | 'XLSX' | 'FORMATO';
 interface Poe { id: number; date: string }
-interface Annex { id: number; name: string; type: AnnexType; files: File[] }
+interface Annex { id: number; name: string; type: AnnexType; files: any[] }
 interface Program { id: number; name: string; annexes: Annex[]; poes: Poe[] }
-const programData: Program = {
+const mockProgramData: Program = {
   id: 1, name: 'Programa de Limpieza y Desinfección',
   annexes: [
     { id: 1, name: 'Certificado de Fumigación', type: 'PDF', files: [] },
@@ -30,7 +31,10 @@ const typeAccept: Record<AnnexType, string> = { IMAGES: 'image/*', PDF: 'applica
 const typeIcon: Record<AnnexType, any> = { IMAGES: Images, PDF: FileText, WORD: FileText, XLSX: FileDigit, FORMATO: File };
 
 export default function ProgramView() {
-  const [program, setProgram] = useState<Program>(programData);
+  // Usar props enviados por el servidor si existen
+  const { props } = usePage()
+  const serverProgram = (props as any).program ?? mockProgramData
+  const [program, setProgram] = useState<Program>(serverProgram as Program);
   const [uploadOpenFor, setUploadOpenFor] = useState<number | null>(null);
   const [viewOpenFor, setViewOpenFor] = useState<{ kind: 'ANNEX' | 'POE' | null; id?: number }>({ kind: null });
   const [isGenerating, setIsGenerating] = useState(false);
@@ -56,24 +60,35 @@ export default function ProgramView() {
   const totalAnnex = program.annexes.filter(a => a.type !== 'FORMATO').length;
   const completedAnnex = program.annexes.filter(a => a.type !== 'FORMATO' && a.files.length > 0).length;
 
-  const handleGeneratePdf = async () => {
-    setIsGenerating(true);
+    const handleGeneratePdf = async () => {
+        setIsGenerating(true);
 
-    const formData = new FormData();
-    const company = { name: 'XYZ TECH SOLUTIONS', nit: '987654-3', address: 'Calle Secundaria 456', activities: 'Desarrollo de Software', representative: 'Pedro Ramírez' };
-    
-    formData.append('company_name', company.name);
-    formData.append('company_nit', company.nit);
-    formData.append('company_address', company.address);
-    formData.append('company_activities', company.activities);
-    formData.append('company_representative', company.representative);
-    formData.append('program_name', program.name);
+      const formData = new FormData();
+      // Preferir company enviada por el servidor via Inertia (props.company). Si no existe, usar valor por defecto de prueba.
+      const serverCompany = (props as any).company as any | undefined;
+      const company = serverCompany ?? {
+        id: 1,
+        name: 'XYZ TECH SOLUTIONS',
+        nit: '987654-3',
+        address: 'Calle Secundaria 456',
+        activities: 'Desarrollo de Software',
+        representative: 'Pedro Ramírez'
+      };
 
-    program.annexes.forEach((annex, index) => {
-        if (annex.files.length > 0) {
-            formData.append(`anexos[${index}][titulo]`, annex.name);
-            formData.append(`anexos[${index}][archivo]`, annex.files[0]);
-        }
+      formData.append('company_id', (company.id ?? 1).toString());
+      formData.append('company_name', company.name);
+      formData.append('company_nit', company.nit);
+      formData.append('company_address', company.address);
+      formData.append('company_activities', company.activities);
+      formData.append('company_representative', company.representative);
+
+      program.annexes.forEach((annex, index) => {
+    if (annex.files.length > 0) {
+      // enviar el id del anexo (requerido por la validación del servidor)
+      formData.append(`anexos[${index}][id]`, annex.id.toString());
+      // por ahora enviamos el primer archivo (el servidor espera un solo archivo por anexo)
+      formData.append(`anexos[${index}][archivo]`, annex.files[0]);
+    }
     });
 
     try {
@@ -85,7 +100,7 @@ export default function ProgramView() {
         const csrfToken = (csrfTokenMeta as HTMLMetaElement).content;
         // --- FIN DE LA LÓGICA CSRF ---
 
-        const response = await fetch('/programa/generate-pdf', {
+        const response = await fetch(`/programa/${program.id}/generate-pdf`, {
             method: 'POST',
             headers: {
                 'X-CSRF-TOKEN': csrfToken, // Se envía la "llave secreta"
@@ -117,6 +132,16 @@ export default function ProgramView() {
         setIsGenerating(false);
     }
   };
+
+  const getFileUrl = (f: any) => {
+    if (!f) return ''
+    if (typeof f === 'object' && 'url' in f) return f.url
+    try {
+      return URL.createObjectURL(f as unknown as Blob)
+    } catch {
+      return ''
+    }
+  }
 
   return (
     <AppLayout>
@@ -240,19 +265,19 @@ export default function ProgramView() {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {currentAnnex.files.map((f, i) => (
                 <div key={i} className="relative group border rounded-lg overflow-hidden">
-                  <img src={URL.createObjectURL(f)} alt={`img-${i}`} className="w-full h-40 object-cover" />
+                  <img src={getFileUrl(f)} alt={`img-${i}`} className="w-full h-40 object-cover" />
                 </div>
               ))}
             </div>
           )}
           {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.type === 'PDF' && currentAnnex.files[0] && (
-            <iframe title="pdf" src={URL.createObjectURL(currentAnnex.files[0])} className="w-full h-[70vh] rounded border" />
+            <iframe title="pdf" src={getFileUrl(currentAnnex.files[0])} className="w-full h-[70vh] rounded border" />
           )}
           {viewOpenFor.kind === 'ANNEX' && currentAnnex && (currentAnnex.type === 'WORD' || currentAnnex.type === 'XLSX') && currentAnnex.files[0] && (
             <div className="flex flex-col items-center gap-3 p-6 border rounded-lg bg-muted/30">
               <p>No hay vista previa.</p>
-              <a href={URL.createObjectURL(currentAnnex.files[0])} download={currentAnnex.files[0].name}>
-                Descargar {currentAnnex.files[0].name}
+              <a href={getFileUrl(currentAnnex.files[0])} download={currentAnnex.files[0].name ? currentAnnex.files[0].name : 'archivo'}>
+                Descargar {currentAnnex.files[0].name ?? 'archivo'}
               </a>
             </div>
           )}

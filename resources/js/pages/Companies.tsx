@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react'
 import AppLayout from '@/layouts/app-layout'
-import { Head, Link, router } from '@inertiajs/react'
+import { Head, Link, router, usePage } from '@inertiajs/react'
 
 // UI (wrappers locales basados en Radix + Tailwind del proyecto)
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -130,12 +130,17 @@ export default function Companies() {
     setSelectedCompany(prev => (prev && prev.id === company.id ? null : company))
   }
 
+  // Leer props enviados por Inertia (si existen) y usar mocks como fallback
+  const { props } = usePage()
+  const serverProps = (props ?? {}) as any
+  const companies = (serverProps.companies ?? companiesData) as Company[]
+
   const filteredCompanies = useMemo(() => {
-    return companiesData.filter(company =>
+    return companies.filter((company) =>
       company.name.toLowerCase().includes(nameFilter.toLowerCase()) &&
       company.nit.toLowerCase().includes(nitFilter.toLowerCase())
     )
-  }, [nameFilter, nitFilter])
+  }, [nameFilter, nitFilter, companies])
 
   useEffect(() => {
     if (!isEditDialogOpen || !selectedCompany) return
@@ -486,7 +491,7 @@ export default function Companies() {
                                       <span className="text-sm font-medium">{program.progress}%</span>
                                     </div>
                                   </div>
-                                  <Link href={`/programa/${program.id}`}>
+                                  <Link href={`/programa/${program.id}?company_id=${company.id}`}>
                                     <Button variant="default" size="sm" className="mt-2 sm:mt-0">Ir al Programa</Button>
                                   </Link>
                                 </CardContent>

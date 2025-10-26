@@ -3,18 +3,16 @@
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Controllers\ProgramController;
-
+use App\Http\Controllers\CompanyController;
+use App\Http\Controllers\DashboardController;
 
 Route::redirect('/', '/login');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('/dashboard', fn() => Inertia::render('dashboard'))->name('dashboard');
-    Route::get('/lista-empresas', fn() => Inertia::render('Companies'))->name('companies');
-    Route::get('/programa/{id}/generate-pdf', [ProgramController::class, 'generatePdf'])->name('programs.generatePdf');
-    // Nueva ruta para la vista de un programa específico
-    Route::get('/programa/{id}', fn() => Inertia::render('ProgramView'))->name('program.view');
-    // La corrección es cambiar GET por POST:
-    Route::post('/programa/generate-pdf', [App\Http\Controllers\ProgramController::class, 'generatePdf'])->name('programs.generatePdf');
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/lista-empresas', [CompanyController::class, 'index'])->name('companies');
+    Route::get('/programa/{id}', [ProgramController::class, 'show'])->name('program.view');
+    Route::post('/programa/{id}/generate-pdf', [ProgramController::class, 'generatePdf'])->name('programs.generatePdf');
 });
 // En routes/web.php
 Route::get('/check-zip', function () {
