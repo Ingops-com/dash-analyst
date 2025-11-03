@@ -9,10 +9,10 @@ import { LayoutGrid, Building2, List, Users, FileText, Settings as SettingsIcon,
 import AppLogo from './app-logo';
 
 export function AppSidebar() {
-    const { auth } = usePage().props;
-    const user = auth?.user || {};
-    console.log('User role:', user.rol); // Debug
-    const isAdmin = user.rol === 'admin';
+    const { auth } = usePage().props as any;
+    const user = (auth?.user || {}) as { rol?: string };
+    // Evitar spam en consola y corregir rol
+    const isAdmin = user.rol === 'administrador' || user.rol === 'admin';
 
     // Navegación base para todos
     const mainNavItems: NavItem[] = [

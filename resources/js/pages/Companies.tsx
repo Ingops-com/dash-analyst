@@ -94,6 +94,7 @@ export default function Companies() {
     )
   }, [nameFilter, nitFilter, companies])
 
+  // Al abrir el modal, poblar SIEMPRE con la empresa seleccionada desde el servidor
   useEffect(() => {
     if (!isEditDialogOpen || !selectedCompany) return
     setFormData({ ...selectedCompany })
@@ -101,6 +102,16 @@ export default function Companies() {
     setLogoFiles([])
     setErrors({})
   }, [isEditDialogOpen, selectedCompany])
+
+  const openEditDialog = () => {
+    if (!selectedCompany) return
+    // Rellena inmediatamente con los datos actuales del servidor
+    setFormData({ ...selectedCompany })
+    setLogoPreviews(selectedCompany.logos || [])
+    setLogoFiles([])
+    setErrors({})
+    setIsEditDialogOpen(true)
+  }
 
   const updateField = (key: keyof Company, value: any) => setFormData(prev => ({ ...prev, [key]: value }))
 
@@ -161,9 +172,15 @@ export default function Companies() {
       logoFiles.forEach((f, i) => fd.append(`logos[${i}]`, f))
       // Compat: aunque ya existe POST/PUT en backend, mantenemos _method para coherencia
       fd.append('_method', 'PUT')
+      // CSRF para Laravel cuando se usa FormData
+      const csrf = (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null)?.content
+      if (csrf) fd.append('_token', csrf)
       router.post(`/companies/${selectedCompany.id}`, fd, { ...commonOptions, forceFormData: true })
     } else {
-      router.put(`/companies/${selectedCompany.id}`, payload, commonOptions as any)
+      // Incluir _token por compatibilidad si el middleware CSRF lo exige en JSON
+      const csrf = (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null)?.content
+      const body = csrf ? { ...payload, _token: csrf } : payload
+      router.put(`/companies/${selectedCompany.id}`, body as any, commonOptions as any)
     }
   }
 
@@ -229,11 +246,9 @@ export default function Companies() {
                             </div>
 
                             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-                              <DialogTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                  <Pencil className="h-4 w-4 mr-2" /> Editar
-                                </Button>
-                              </DialogTrigger>
+                              <Button variant="outline" size="sm" onClick={openEditDialog}>
+                                <Pencil className="h-4 w-4 mr-2" /> Editar
+                              </Button>
 
                               <DialogContent className="sm:max-w-[900px] max-h-[85vh] overflow-y-auto">
                                 <DialogHeader>
