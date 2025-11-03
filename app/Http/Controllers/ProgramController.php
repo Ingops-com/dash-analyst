@@ -49,6 +49,130 @@ class ProgramController extends Controller
         ]);
     }
 
+    public function uploadAnnex(Request $request, $programId, $annexId)
+    {
+        $validated = $request->validate([
+            'company_id' => 'required|exists:companies,id',
+            'file' => 'required|file|max:10240', // 10MB max
+        ]);
+
+        try {
+            $file = $request->file('file');
+            $submission = $this->saveAnnexFile(
+                $file,
+                $validated['company_id'],
+                $programId,
+                $annexId
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Archivo subido exitosamente',
+                'submission' => [
+                    'id' => $submission->id,
+                    'name' => $submission->file_name,
+                    'url' => Storage::url($submission->file_path),
+                    'mime' => $submission->mime_type,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error uploading annex file: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al subir el archivo: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function clearAnnexFiles(Request $request, $programId, $annexId)
+    {
+        $validated = $request->validate([
+            'company_id' => 'required|exists:companies,id',
+        ]);
+
+        try {
+            // Obtener todas las submisiones para este anexo
+            $submissions = CompanyAnnexSubmission::where('company_id', $validated['company_id'])
+                ->where('program_id', $programId)
+                ->where('annex_id', $annexId)
+                ->get();
+
+            // Eliminar los archivos físicos del storage
+            foreach ($submissions as $submission) {
+                try {
+                    if (Storage::exists($submission->file_path)) {
+                        Storage::delete($submission->file_path);
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("No se pudo eliminar el archivo: {$submission->file_path}");
+                }
+            }
+
+            // Eliminar los registros de la base de datos
+            CompanyAnnexSubmission::where('company_id', $validated['company_id'])
+                ->where('program_id', $programId)
+                ->where('annex_id', $annexId)
+                ->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Archivos eliminados exitosamente',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error clearing annex files: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al eliminar archivos: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function deleteAnnexFile(Request $request, $programId, $annexId, $submissionId)
+    {
+        $validated = $request->validate([
+            'company_id' => 'required|exists:companies,id',
+        ]);
+
+        try {
+            // Verificar que la submisión pertenece a la empresa y al anexo correctos
+            $submission = CompanyAnnexSubmission::where('id', $submissionId)
+                ->where('company_id', $validated['company_id'])
+                ->where('program_id', $programId)
+                ->where('annex_id', $annexId)
+                ->first();
+
+            if (!$submission) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Archivo no encontrado',
+                ], 404);
+            }
+
+            // Eliminar el archivo físico del storage
+            try {
+                if (Storage::exists($submission->file_path)) {
+                    Storage::delete($submission->file_path);
+                }
+            } catch (\Exception $e) {
+                Log::warning("No se pudo eliminar el archivo: {$submission->file_path}");
+            }
+
+            // Eliminar el registro de la base de datos
+            $submission->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Archivo eliminado exitosamente',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error deleting annex file: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al eliminar archivo: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function generatePdf(Request $request, $id)
     {
         $program = Program::findOrFail($id);
@@ -60,8 +184,8 @@ class ProgramController extends Controller
             'company_address' => 'required|string',
             'company_activities' => 'required|string',
             'company_representative' => 'required|string',
-            'anexos.*.id' => 'required|exists:annexes,id',
-            'anexos.*.archivo' => 'required|file|max:10240'
+            'anexos.*.id' => 'nullable|exists:annexes,id',
+            'anexos.*.archivo' => 'nullable|file|max:10240'
         ]);
 
         $tempDir = storage_path('app/temp');
@@ -214,6 +338,15 @@ class ProgramController extends Controller
 
             // Procesar y guardar los anexos
             $annexSubmissions = [];
+            
+            // Primero, obtener los anexos ya guardados de la BD para esta empresa/programa
+            $existingSubmissions = CompanyAnnexSubmission::where('company_id', $validated['company_id'])
+                ->where('program_id', $program->id)
+                ->whereIn('status', ['Pendiente', 'Aprobado'])
+                ->get()
+                ->keyBy('annex_id');
+            
+            // Si se envían nuevos archivos, procesarlos
             if ($request->has('anexos')) {
                 foreach ($request->anexos as $index => $anexoData) {
                     if (isset($anexoData['archivo']) && $anexoData['archivo']->isValid()) {
@@ -224,25 +357,35 @@ class ProgramController extends Controller
                             $anexoData['id']
                         );
                         $annexSubmissions[] = $submission;
+                        // Actualizar en el array de existentes
+                        $existingSubmissions[$anexoData['id']] = $submission;
+                    }
+                }
+            }
+            
+            // Procesar todas las submisiones (nuevas y existentes) para insertar en el documento
+            foreach ($existingSubmissions as $submission) {
+                if (str_starts_with($submission->mime_type, 'image/')) {
+                    try {
+                        $imagePath = Storage::path($submission->file_path);
+                    } catch (\Throwable $ex) {
+                        $imagePath = storage_path('app/' . ltrim($submission->file_path, '/'));
+                    }
+                    
+                    if (!file_exists($imagePath)) {
+                        continue; // Skip si el archivo no existe
+                    }
+                    
+                    $tempImagePaths[] = $imagePath;
 
-                        if (str_starts_with($submission->mime_type, 'image/')) {
-                            try {
-                                $imagePath = Storage::path($submission->file_path);
-                            } catch (\Throwable $ex) {
-                                $imagePath = storage_path('app/' . ltrim($submission->file_path, '/'));
-                            }
-                            $tempImagePaths[] = $imagePath;
-
-                            $annexInfo = Annex::find($anexoData['id']);
-                            $placeholder = $annexInfo && isset($annexMapping[$annexInfo->nombre]) ? $annexMapping[$annexInfo->nombre] : null;
-                            if ($placeholder) {
-                                $templateProcessor->setImageValue($placeholder, [
-                                    'path' => $imagePath,
-                                    'width' => 500,
-                                    'ratio' => true
-                                ]);
-                            }
-                        }
+                    $annexInfo = Annex::find($submission->annex_id);
+                    $placeholder = $annexInfo && isset($annexMapping[$annexInfo->nombre]) ? $annexMapping[$annexInfo->nombre] : null;
+                    if ($placeholder) {
+                        $templateProcessor->setImageValue($placeholder, [
+                            'path' => $imagePath,
+                            'width' => 500,
+                            'ratio' => true
+                        ]);
                     }
                 }
             }
@@ -306,13 +449,14 @@ class ProgramController extends Controller
                 $subs = CompanyAnnexSubmission::where('company_id', $companyId)
                     ->where('program_id', $program->id)
                     ->where('annex_id', $a->id)
-                    ->where('status', 'Aprobado')
+                    ->whereIn('status', ['Pendiente', 'Aprobado'])
                     ->get();
 
                 foreach ($subs as $s) {
                     $files[] = [
+                        'id' => $s->id,
                         'name' => $s->file_name,
-                        'url' => asset($s->file_path),
+                        'url' => Storage::url($s->file_path),
                         'mime' => $s->mime_type,
                     ];
                 }

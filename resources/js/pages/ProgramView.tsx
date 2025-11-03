@@ -51,12 +51,183 @@ export default function ProgramView() {
     return Math.round((completed / total) * 100);
   }, [program]);
   const handleAddPoe = () => setProgram(prev => ({ ...prev, poes: [{ id: Date.now(), date: new Date().toLocaleDateString('es-CO') }, ...prev.poes] }));
-  const handleAnnexUpload = (annexId: number, e: ChangeEvent<HTMLInputElement>) => {
+  
+  const handleAnnexUpload = async (annexId: number, e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
-    setProgram(prev => ({...prev, annexes: prev.annexes.map(a => a.id === annexId ? { ...a, files: a.type === 'IMAGES' ? files : files.slice(0, 1) } : a)}));
-    setUploadOpenFor(null);
+    if (files.length === 0) return;
+
+    // Get company ID from props
+    const serverCompany = (props as any).company as any | undefined;
+    if (!serverCompany || !serverCompany.id) {
+      alert('No se pudo identificar la empresa. Por favor, recarga la página.');
+      return;
+    }
+
+    // Get CSRF token
+    const csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
+    if (!csrfTokenMeta) {
+      alert('Token CSRF no encontrado. Por favor, recarga la página.');
+      return;
+    }
+    const csrfToken = (csrfTokenMeta as HTMLMetaElement).content;
+
+    // Find the annex to get its type
+    const currentAnnex = program.annexes.find(a => a.id === annexId);
+    const isMultipleFiles = currentAnnex?.type === 'IMAGES';
+
+    try {
+      // Upload files to backend
+      const uploadedFiles: Array<{ name: string; url: string; mime: string }> = [];
+      
+      for (const file of (isMultipleFiles ? files : files.slice(0, 1))) {
+        const formData = new FormData();
+        formData.append('company_id', serverCompany.id.toString());
+        formData.append('file', file);
+
+        const response = await fetch(`/programa/${program.id}/annex/${annexId}/upload`, {
+          method: 'POST',
+          headers: {
+            'X-CSRF-TOKEN': csrfToken,
+            'Accept': 'application/json',
+          },
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: 'Error al subir archivo' }));
+          throw new Error(errorData.message || 'Error al subir archivo');
+        }
+
+        const result = await response.json();
+        if (result.success && result.submission) {
+          uploadedFiles.push(result.submission);
+        }
+      }
+
+      // Update local state with uploaded files
+      setProgram(prev => ({
+        ...prev,
+        annexes: prev.annexes.map(a => 
+          a.id === annexId 
+            ? { ...a, files: isMultipleFiles ? [...a.files, ...uploadedFiles] : uploadedFiles }
+            : a
+        )
+      }));
+
+      setUploadOpenFor(null);
+    } catch (error) {
+      console.error('Error uploading annex files:', error);
+      alert(error instanceof Error ? error.message : 'Error al subir los archivos');
+    }
   };
-  const clearAnnexFiles = (annexId: number) => setProgram(prev => ({ ...prev, annexes: prev.annexes.map(a => a.id === annexId ? { ...a, files: [] } : a) }));
+  
+  const clearAnnexFiles = async (annexId: number) => {
+    if (!confirm('¿Estás seguro de que deseas eliminar todos los archivos de este anexo?')) {
+      return;
+    }
+
+    // Get company ID from props
+    const serverCompany = (props as any).company as any | undefined;
+    if (!serverCompany || !serverCompany.id) {
+      alert('No se pudo identificar la empresa.');
+      return;
+    }
+
+    // Get CSRF token
+    const csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
+    if (!csrfTokenMeta) {
+      alert('Token CSRF no encontrado. Por favor, recarga la página.');
+      return;
+    }
+    const csrfToken = (csrfTokenMeta as HTMLMetaElement).content;
+
+    try {
+      const response = await fetch(`/programa/${program.id}/annex/${annexId}/clear`, {
+        method: 'DELETE',
+        headers: {
+          'X-CSRF-TOKEN': csrfToken,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          company_id: serverCompany.id,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Error al eliminar archivos' }));
+        throw new Error(errorData.message || 'Error al eliminar archivos');
+      }
+
+      // Update local state to remove files
+      setProgram(prev => ({
+        ...prev,
+        annexes: prev.annexes.map(a => 
+          a.id === annexId ? { ...a, files: [] } : a
+        )
+      }));
+
+      alert('Archivos eliminados exitosamente');
+    } catch (error) {
+      console.error('Error clearing annex files:', error);
+      alert(error instanceof Error ? error.message : 'Error al eliminar los archivos');
+    }
+  };
+
+  const deleteAnnexFile = async (annexId: number, fileId: number) => {
+    if (!confirm('¿Estás seguro de que deseas eliminar este archivo?')) {
+      return;
+    }
+
+    // Get company ID from props
+    const serverCompany = (props as any).company as any | undefined;
+    if (!serverCompany || !serverCompany.id) {
+      alert('No se pudo identificar la empresa.');
+      return;
+    }
+
+    // Get CSRF token
+    const csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
+    if (!csrfTokenMeta) {
+      alert('Token CSRF no encontrado. Por favor, recarga la página.');
+      return;
+    }
+    const csrfToken = (csrfTokenMeta as HTMLMetaElement).content;
+
+    try {
+      const response = await fetch(`/programa/${program.id}/annex/${annexId}/file/${fileId}`, {
+        method: 'DELETE',
+        headers: {
+          'X-CSRF-TOKEN': csrfToken,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          company_id: serverCompany.id,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Error al eliminar archivo' }));
+        throw new Error(errorData.message || 'Error al eliminar archivo');
+      }
+
+      // Update local state to remove this specific file
+      setProgram(prev => ({
+        ...prev,
+        annexes: prev.annexes.map(a => 
+          a.id === annexId 
+            ? { ...a, files: a.files.filter((f: any) => f.id !== fileId) }
+            : a
+        )
+      }));
+
+    } catch (error) {
+      console.error('Error deleting annex file:', error);
+      alert(error instanceof Error ? error.message : 'Error al eliminar el archivo');
+    }
+  };
+  
   const openViewAnnex = (annex: Annex) => setViewOpenFor({ kind: 'ANNEX', id: annex.id });
   const openViewPoe = (poe: Poe) => setViewOpenFor({ kind: 'POE', id: poe.id });
   const currentAnnex = program.annexes.find(a => a.id === viewOpenFor.id);
@@ -85,14 +256,20 @@ export default function ProgramView() {
       formData.append('company_activities', company.activities);
       formData.append('company_representative', company.representative);
 
-      program.annexes.forEach((annex, index) => {
-    if (annex.files.length > 0) {
-      // enviar el id del anexo (requerido por la validación del servidor)
-      formData.append(`anexos[${index}][id]`, annex.id.toString());
-      // por ahora enviamos el primer archivo (el servidor espera un solo archivo por anexo)
-      formData.append(`anexos[${index}][archivo]`, annex.files[0]);
-    }
-    });
+      // Solo enviar anexos que son archivos File reales (no los ya subidos desde el servidor)
+      let anexoIndex = 0;
+      program.annexes.forEach((annex) => {
+        if (annex.files.length > 0) {
+          // Verificar si el primer archivo es un File object real (no un objeto { name, url, mime })
+          const firstFile = annex.files[0];
+          // Los archivos ya subidos tienen la propiedad 'url', los File reales no
+          if (firstFile && !('url' in firstFile) && firstFile instanceof File) {
+            formData.append(`anexos[${anexoIndex}][id]`, annex.id.toString());
+            formData.append(`anexos[${anexoIndex}][archivo]`, firstFile as File);
+            anexoIndex++;
+          }
+        }
+      });
 
     try {
         // --- INICIO DE LA LÓGICA CSRF CORREGIDA ---
@@ -266,9 +443,20 @@ export default function ProgramView() {
           </DialogHeader>
           {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.type === 'IMAGES' && currentAnnex.files.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {currentAnnex.files.map((f, i) => (
-                <div key={i} className="relative group border rounded-lg overflow-hidden">
+              {currentAnnex.files.map((f: any, i) => (
+                <div key={f.id || i} className="relative group border rounded-lg overflow-hidden">
                   <img src={getFileUrl(f)} alt={`img-${i}`} className="w-full h-40 object-cover" />
+                  {f.id && (
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => deleteAnnexFile(currentAnnex.id, f.id)}
+                      title="Eliminar archivo"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>

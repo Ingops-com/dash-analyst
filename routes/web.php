@@ -20,6 +20,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/programas', [ProgramListController::class, 'index'])->name('programs.index');
     Route::get('/programa/{id}', [ProgramController::class, 'show'])->name('program.view');
     Route::post('/programa/{id}/generate-pdf', [ProgramController::class, 'generatePdf'])->name('programs.generatePdf');
+    Route::post('/programa/{programId}/annex/{annexId}/upload', [ProgramController::class, 'uploadAnnex'])->name('program.annex.upload');
+    Route::delete('/programa/{programId}/annex/{annexId}/clear', [ProgramController::class, 'clearAnnexFiles'])->name('program.annex.clear');
+    Route::delete('/programa/{programId}/annex/{annexId}/file/{submissionId}', [ProgramController::class, 'deleteAnnexFile'])->name('program.annex.file.delete');
     
     // Admin routes
     Route::middleware(['role:admin'])->group(function () {
