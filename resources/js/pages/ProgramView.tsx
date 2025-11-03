@@ -1,5 +1,5 @@
-import { useState, useMemo, ChangeEvent } from 'react';
-import { usePage } from '@inertiajs/react';
+import { useState, useMemo, ChangeEvent, useEffect } from 'react';
+import { usePage, router } from '@inertiajs/react';
 import AppLayout from '@/layouts/app-layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -41,6 +41,13 @@ export default function ProgramView() {
   const [uploadOpenFor, setUploadOpenFor] = useState<number | null>(null);
   const [viewOpenFor, setViewOpenFor] = useState<{ kind: 'ANNEX' | 'POE' | null; id?: number }>({ kind: null });
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // Sincronizar el estado local con los datos del servidor cuando cambien
+  useEffect(() => {
+    if (serverProgram) {
+      setProgram(serverProgram as Program);
+    }
+  }, [serverProgram]);
 
   // Lógica de la vista (sin cambios)
   const progress = useMemo(() => {
@@ -104,17 +111,15 @@ export default function ProgramView() {
         }
       }
 
-      // Update local state with uploaded files
-      setProgram(prev => ({
-        ...prev,
-        annexes: prev.annexes.map(a => 
-          a.id === annexId 
-            ? { ...a, files: isMultipleFiles ? [...a.files, ...uploadedFiles] : uploadedFiles }
-            : a
-        )
-      }));
+      // Recargar la página para obtener los datos actualizados del servidor
+      // Esto asegura que los archivos se muestren correctamente desde la BD
+      router.reload({
+        only: ['program'],
+        onSuccess: () => {
+          setUploadOpenFor(null);
+        }
+      });
 
-      setUploadOpenFor(null);
     } catch (error) {
       console.error('Error uploading annex files:', error);
       alert(error instanceof Error ? error.message : 'Error al subir los archivos');
@@ -159,15 +164,11 @@ export default function ProgramView() {
         throw new Error(errorData.message || 'Error al eliminar archivos');
       }
 
-      // Update local state to remove files
-      setProgram(prev => ({
-        ...prev,
-        annexes: prev.annexes.map(a => 
-          a.id === annexId ? { ...a, files: [] } : a
-        )
-      }));
+      // Recargar la página para obtener los datos actualizados del servidor
+      router.reload({
+        only: ['program'],
+      });
 
-      alert('Archivos eliminados exitosamente');
     } catch (error) {
       console.error('Error clearing annex files:', error);
       alert(error instanceof Error ? error.message : 'Error al eliminar los archivos');
@@ -212,15 +213,10 @@ export default function ProgramView() {
         throw new Error(errorData.message || 'Error al eliminar archivo');
       }
 
-      // Update local state to remove this specific file
-      setProgram(prev => ({
-        ...prev,
-        annexes: prev.annexes.map(a => 
-          a.id === annexId 
-            ? { ...a, files: a.files.filter((f: any) => f.id !== fileId) }
-            : a
-        )
-      }));
+      // Recargar la página para obtener los datos actualizados del servidor
+      router.reload({
+        only: ['program'],
+      });
 
     } catch (error) {
       console.error('Error deleting annex file:', error);

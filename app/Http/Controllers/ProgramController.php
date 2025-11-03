@@ -31,8 +31,8 @@ class ProgramController extends Controller
         $storagePath = "anexos/company_{$companyId}/program_{$programId}";
         $uniqueName = uniqid() . '_' . $fileName;
         
-        // Guardar el archivo
-        $filePath = $file->storeAs("public/{$storagePath}", $uniqueName);
+        // Guardar el archivo en el disco 'public' (storage/app/public)
+        $filePath = $file->storeAs($storagePath, $uniqueName, 'public');
         
         // Crear el registro en la base de datos
         return CompanyAnnexSubmission::create([
@@ -71,7 +71,7 @@ class ProgramController extends Controller
                 'submission' => [
                     'id' => $submission->id,
                     'name' => $submission->file_name,
-                    'url' => Storage::url($submission->file_path),
+                    'url' => asset('storage/' . $submission->file_path),
                     'mime' => $submission->mime_type,
                 ],
             ]);
@@ -100,8 +100,8 @@ class ProgramController extends Controller
             // Eliminar los archivos físicos del storage
             foreach ($submissions as $submission) {
                 try {
-                    if (Storage::exists($submission->file_path)) {
-                        Storage::delete($submission->file_path);
+                    if (Storage::disk('public')->exists($submission->file_path)) {
+                        Storage::disk('public')->delete($submission->file_path);
                     }
                 } catch (\Exception $e) {
                     Log::warning("No se pudo eliminar el archivo: {$submission->file_path}");
@@ -150,8 +150,8 @@ class ProgramController extends Controller
 
             // Eliminar el archivo físico del storage
             try {
-                if (Storage::exists($submission->file_path)) {
-                    Storage::delete($submission->file_path);
+                if (Storage::disk('public')->exists($submission->file_path)) {
+                    Storage::disk('public')->delete($submission->file_path);
                 }
             } catch (\Exception $e) {
                 Log::warning("No se pudo eliminar el archivo: {$submission->file_path}");
@@ -343,10 +343,9 @@ class ProgramController extends Controller
             $existingSubmissions = CompanyAnnexSubmission::where('company_id', $validated['company_id'])
                 ->where('program_id', $program->id)
                 ->whereIn('status', ['Pendiente', 'Aprobado'])
-                ->get()
-                ->keyBy('annex_id');
+                ->get();
             
-            // Si se envían nuevos archivos, procesarlos
+            // Si se envían nuevos archivos, procesarlos (aunque ahora esto casi nunca pasa porque subimos antes)
             if ($request->has('anexos')) {
                 foreach ($request->anexos as $index => $anexoData) {
                     if (isset($anexoData['archivo']) && $anexoData['archivo']->isValid()) {
@@ -357,35 +356,46 @@ class ProgramController extends Controller
                             $anexoData['id']
                         );
                         $annexSubmissions[] = $submission;
-                        // Actualizar en el array de existentes
-                        $existingSubmissions[$anexoData['id']] = $submission;
+                        // Agregar a la colección de existentes
+                        $existingSubmissions->push($submission);
                     }
                 }
             }
             
             // Procesar todas las submisiones (nuevas y existentes) para insertar en el documento
-            foreach ($existingSubmissions as $submission) {
+            // Agrupar por annex_id para manejar múltiples imágenes por anexo
+            $submissionsByAnnex = $existingSubmissions->groupBy('annex_id');
+            
+            foreach ($submissionsByAnnex as $annexId => $submissions) {
+                // Por ahora, usar solo la primera imagen de cada anexo (PhpWord limita a 1 por placeholder)
+                // TODO: Implementar soporte para múltiples imágenes por anexo usando cloneBlock
+                $submission = $submissions->first();
+                
                 if (str_starts_with($submission->mime_type, 'image/')) {
                     try {
-                        $imagePath = Storage::path($submission->file_path);
+                        $imagePath = Storage::disk('public')->path($submission->file_path);
                     } catch (\Throwable $ex) {
-                        $imagePath = storage_path('app/' . ltrim($submission->file_path, '/'));
+                        $imagePath = storage_path('app/public/' . $submission->file_path);
                     }
                     
                     if (!file_exists($imagePath)) {
+                        Log::warning("Archivo no encontrado al generar documento: {$imagePath}");
                         continue; // Skip si el archivo no existe
                     }
                     
                     $tempImagePaths[] = $imagePath;
 
-                    $annexInfo = Annex::find($submission->annex_id);
+                    $annexInfo = Annex::find($annexId);
                     $placeholder = $annexInfo && isset($annexMapping[$annexInfo->nombre]) ? $annexMapping[$annexInfo->nombre] : null;
+                    
                     if ($placeholder) {
                         $templateProcessor->setImageValue($placeholder, [
                             'path' => $imagePath,
                             'width' => 500,
                             'ratio' => true
                         ]);
+                        
+                        Log::info("Anexo insertado en documento: {$annexInfo->nombre} ({$submissions->count()} archivo(s) en BD, usando el primero)");
                     }
                 }
             }
@@ -456,7 +466,7 @@ class ProgramController extends Controller
                     $files[] = [
                         'id' => $s->id,
                         'name' => $s->file_name,
-                        'url' => Storage::url($s->file_path),
+                        'url' => asset('storage/' . $s->file_path),
                         'mime' => $s->mime_type,
                     ];
                 }
