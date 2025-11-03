@@ -139,21 +139,31 @@ export default function Companies() {
   const onSubmit = async () => {
     if (!selectedCompany) return
     if (!validate()) return
-    try {
-      setSaving(true)
-      const payload: any = { ...formData }
-      if (logoFiles.length) {
-        const fd = new FormData()
-        Object.entries(payload).forEach(([k, v]) => v != null && fd.append(k, String(v)))
-        logoFiles.forEach((f, i) => fd.append(`logos[${i}]`, f))
-        // router.post(`/companies/${selectedCompany.id}`, fd, { forceFormData: true })
-      } else {
-        // router.put(`/companies/${selectedCompany.id}`, payload)
-      }
-      await new Promise(r => setTimeout(r, 800))
-      setIsEditDialogOpen(false)
-    } finally {
-      setSaving(false)
+    setSaving(true)
+    const payload: any = { ...formData }
+    const commonOptions = {
+      preserveScroll: true,
+      onSuccess: () => {
+        setIsEditDialogOpen(false)
+      },
+      onError: (errors: any) => {
+        // Map server errors into local errors state when possible
+        if (errors && typeof errors === 'object') {
+          setErrors(prev => ({ ...prev, ...errors }))
+        }
+      },
+      onFinish: () => setSaving(false),
+    } as const
+
+    if (logoFiles.length) {
+      const fd = new FormData()
+      Object.entries(payload).forEach(([k, v]) => v != null && fd.append(k, String(v)))
+      logoFiles.forEach((f, i) => fd.append(`logos[${i}]`, f))
+      // Compat: aunque ya existe POST/PUT en backend, mantenemos _method para coherencia
+      fd.append('_method', 'PUT')
+      router.post(`/companies/${selectedCompany.id}`, fd, { ...commonOptions, forceFormData: true })
+    } else {
+      router.put(`/companies/${selectedCompany.id}`, payload, commonOptions as any)
     }
   }
 

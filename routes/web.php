@@ -15,6 +15,8 @@ Route::redirect('/', '/login');
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/lista-empresas', [CompanyController::class, 'index'])->name('companies');
+    // Allow both PUT and POST for update to avoid method spoofing issues with FormData in some environments
+    Route::match(['put', 'post'], '/companies/{id}', [CompanyController::class, 'update'])->name('companies.update');
     Route::get('/programas', [ProgramListController::class, 'index'])->name('programs.index');
     Route::get('/programa/{id}', [ProgramController::class, 'show'])->name('program.view');
     Route::post('/programa/{id}/generate-pdf', [ProgramController::class, 'generatePdf'])->name('programs.generatePdf');

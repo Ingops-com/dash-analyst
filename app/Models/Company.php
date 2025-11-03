@@ -19,6 +19,8 @@ class Company extends Model
         'telefono',
         'representante_legal',
         'encargado_sgc',
+        'revisado_por',
+        'aprobado_por',
         'version',
         'fecha_inicio',
         'fecha_verificacion',

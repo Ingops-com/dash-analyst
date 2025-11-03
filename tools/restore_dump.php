@@ -1,14 +1,28 @@
-<?php
+php artisan tinker --execute="DB::table('companies')->where('id',1)->update(['revisado_por'=>'ING. Gloria Marcela Cabrejo Moreno','aprobado_por'=>'Ing Gloria Cabrejo']);"<?php
 $root = __DIR__ . '/../';
 $envPath = $root . '.env';
-$dumpPath = $root . 'gsccazh_ (1).sql';
+
+// Allow passing a dump path as first CLI arg. Fallback to files in project root.
+$cliArgPath = $argv[1] ?? null;
+$freshFlag = in_array('--fresh', $argv, true);
+$candidates = [];
+if ($cliArgPath) {
+    $candidates[] = $cliArgPath;
+}
+$candidates[] = $root . 'gsccazh_ (2).sql';
+$candidates[] = $root . 'gsccazh_ (1).sql';
+
+$dumpPath = null;
+foreach ($candidates as $c) {
+    if (file_exists($c)) { $dumpPath = $c; break; }
+}
 
 if (!file_exists($envPath)) {
     echo "Error: .env not found\n";
     exit(1);
 }
-if (!file_exists($dumpPath)) {
-    echo "Error: SQL dump not found at: $dumpPath\n";
+if (!$dumpPath) {
+    echo "Error: SQL dump not found. Place your dump at project root as 'gsccazh_ (2).sql' or pass a full path as first argument.\n";
     exit(1);
 }
 
@@ -35,7 +49,8 @@ if (!$db || !$user) {
     exit(1);
 }
 
-echo "Restoring SQL dump to database '{$db}' on {$host}:{$port} as user {$user}\n";
+echo "Restoring SQL dump from: {$dumpPath}\n";
+echo "Target database: '{$db}' on {$host}:{$port} as user {$user}\n";
 
 $mysqli = new mysqli($host, $user, $pass, $db, (int)$port);
 if ($mysqli->connect_errno) {
@@ -52,6 +67,20 @@ if ($sql === false) {
 // Increase timeout
 $mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, 60);
 $mysqli->set_charset('utf8mb4');
+
+// Optionally drop all tables first if --fresh flag is present
+if ($freshFlag) {
+    echo "--fresh flag detected: dropping existing tables...\n";
+    $mysqli->query('SET FOREIGN_KEY_CHECKS=0');
+    if ($res = $mysqli->query('SHOW FULL TABLES WHERE Table_type = "BASE TABLE"')) {
+        while ($row = $res->fetch_array()) {
+            $table = $row[0];
+            $mysqli->query("DROP TABLE IF EXISTS `{$table}`");
+        }
+        $res->free();
+    }
+    $mysqli->query('SET FOREIGN_KEY_CHECKS=1');
+}
 
 // Execute multi query
 if (!$mysqli->multi_query($sql)) {

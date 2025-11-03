@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use PhpOffice\PhpWord\TemplateProcessor;
+use PhpOffice\PhpWord\PhpWord;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
@@ -13,8 +14,10 @@ use App\Models\CompanyAnnexSubmission;
 use App\Models\CompanyPoeRecord;
 use App\Models\Poe;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
 use App\Models\Company;
+use App\Services\DocumentHeaderService;
 
 class ProgramController extends Controller
 {
@@ -41,7 +44,8 @@ class ProgramController extends Controller
             'mime_type' => $mimeType,
             'file_size' => $fileSize,
             'status' => 'Pendiente',
-            'submitted_by' => auth()->id()
+            // Use Auth facade for better static analysis compatibility
+            'submitted_by' => Auth::id(),
         ]);
     }
 
@@ -72,12 +76,35 @@ class ProgramController extends Controller
                 throw new \Exception('Las extensiones Zip y GD de PHP son necesarias y no están activadas.');
             }
 
+            // Obtener datos completos de la empresa desde la BD
+            $company = Company::findOrFail($validated['company_id']);
+            
+            $companyData = [
+                'nombre' => $company->nombre,
+                'nit_empresa' => $company->nit_empresa,
+                'direccion' => $company->direccion,
+                'actividades' => $company->actividades,
+                'representante_legal' => $company->representante_legal,
+                'encargado_sgc' => $company->encargado_sgc,
+                'revisado_por' => $company->revisado_por,
+                'aprobado_por' => $company->aprobado_por,
+                'version' => $company->version,
+                'fecha_inicio' => $company->fecha_inicio ? $company->fecha_inicio->format('Y-m-d') : null,
+                'logo_izquierdo' => $company->logo_izquierdo,
+                'logo_derecho' => $company->logo_derecho,
+                'logo_pie_de_pagina' => $company->logo_pie_de_pagina,
+            ];
+            
+            $programData = [
+                'nombre' => $program->nombre,
+                'codigo' => $program->codigo,
+                'version' => $program->version,
+            ];
+
             // Determinar la plantilla basada en el tipo de programa
-            // Si no existe la columna template_type en la BD, permitimos usar el mapeo por id (programa 1 => plan_saneamiento)
             if (isset($program->template_type) && $program->template_type === 'plan_saneamiento') {
                 $templatePath = storage_path('plantillas/planDeSaneamientoBasico/Plantilla.docx');
             } elseif ($program->id === 1) {
-                // Fallback para entorno de pruebas: programa 1 usa plan de saneamiento básico
                 $templatePath = storage_path('plantillas/planDeSaneamientoBasico/Plantilla.docx');
             } else {
                 throw new \Exception('Tipo de programa no soportado para generación de documento');
@@ -116,14 +143,65 @@ class ProgramController extends Controller
                 'Actividades de la empresa' => $validated['company_activities'] ?? '',
                 'Programa' => $program->nombre ?? '',
                 'Poes' => $poeText,
-                // placeholder adicional por si aparece
                 'Anexo 6' => '(Anexo no proporcionado)',
             ];
 
-            // Reemplazar variables comunes tal cual están en la plantilla (${Nombre de la empresa} etc.)
+            // Reemplazar variables comunes
             foreach ($commonVariables as $key => $value) {
                 $templateProcessor->setValue($key, $value ?? '');
             }
+
+            // ====== SOPORTE DE PLACEHOLDERS EN HEADER/FOOTER (sin segunda pasada) ======
+            // Si la plantilla incluye placeholders en el header, los rellenamos aquí para evitar el problema de WMF al reabrir el DOCX.
+            // Recomendado agregar estos placeholders en el header de la plantilla (se pueden usar algunos o todos):
+            //  - ${HEADER_LOGO_LEFT}, ${HEADER_LOGO_RIGHT}, ${FOOTER_LOGO}
+            //  - ${HEADER_TITLE}, ${HEADER_CODE}
+            //  - ${HEADER_REVIEWED}, ${HEADER_ADDRESS}, ${HEADER_APPROVED}, ${HEADER_VERSION_DATE}
+
+            // Helper para resolver paths de imágenes de logos
+            $resolveLogoPath = function (?string $storagePath) {
+                if (!$storagePath) return null;
+                try {
+                    if (Storage::disk('public')->exists($storagePath)) {
+                        return Storage::disk('public')->path($storagePath);
+                    }
+                } catch (\Throwable $e) { /* ignore */ }
+                $fallback = storage_path('app/public/' . ltrim((string)$storagePath, '/'));
+                return file_exists($fallback) ? $fallback : null;
+            };
+
+            $leftLogoPath = $resolveLogoPath($companyData['logo_izquierdo'] ?? null);
+            $rightLogoPath = $resolveLogoPath($companyData['logo_derecho'] ?? null);
+            $footerLogoPath = $resolveLogoPath($companyData['logo_pie_de_pagina'] ?? null);
+
+            // Imágenes en header/footer (si existen placeholders)
+            if ($leftLogoPath) {
+                foreach (['HEADER_LOGO_LEFT','LOGO_IZQ','LogoIzquierdo'] as $ph) {
+                    $templateProcessor->setImageValue($ph, [ 'path' => $leftLogoPath, 'width' => 140, 'ratio' => true ]);
+                }
+            }
+            if ($rightLogoPath) {
+                foreach (['HEADER_LOGO_RIGHT','LOGO_DER','LogoDerecho'] as $ph) {
+                    $templateProcessor->setImageValue($ph, [ 'path' => $rightLogoPath, 'width' => 120, 'ratio' => true ]);
+                }
+            }
+            if ($footerLogoPath) {
+                foreach (['FOOTER_LOGO','LOGO_PIE','LogoPie'] as $ph) {
+                    $templateProcessor->setImageValue($ph, [ 'path' => $footerLogoPath, 'width' => 110, 'ratio' => true ]);
+                }
+            }
+
+            // Textos del header
+            $fechaFmt = $companyData['fecha_inicio'] ? date('M-y', strtotime($companyData['fecha_inicio'])) : '';
+            $headerVars = [
+                'HEADER_TITLE' => $programData['nombre'] ?? '',
+                'HEADER_CODE' => $programData['codigo'] ?? '',
+                'HEADER_REVIEWED' => 'Revisado por: ' . ( $companyData['revisado_por'] ?? $companyData['encargado_sgc'] ?? '' ),
+                'HEADER_ADDRESS' => 'Dirección del establecimiento ' . ( $companyData['direccion'] ?? '' ),
+                'HEADER_APPROVED' => 'Aprobado por: ' . ( $companyData['aprobado_por'] ?? $companyData['representante_legal'] ?? '' ),
+                'HEADER_VERSION_DATE' => 'Versión ' . ($companyData['version'] ?? '') . ( $fechaFmt ? '      ' . $fechaFmt : '' ),
+            ];
+            foreach ($headerVars as $k => $v) { $templateProcessor->setValue($k, $v); }
 
             // Reemplazar placeholders de IMÁGENES
             $annexMapping = [
@@ -148,16 +226,13 @@ class ProgramController extends Controller
                         $annexSubmissions[] = $submission;
 
                         if (str_starts_with($submission->mime_type, 'image/')) {
-                            // Obtener path físico del archivo guardado
                             try {
                                 $imagePath = Storage::path($submission->file_path);
                             } catch (\Throwable $ex) {
-                                // Fallback: construir desde storage_path
                                 $imagePath = storage_path('app/' . ltrim($submission->file_path, '/'));
                             }
                             $tempImagePaths[] = $imagePath;
 
-                            // Obtener información del anexo para mapear placeholder
                             $annexInfo = Annex::find($anexoData['id']);
                             $placeholder = $annexInfo && isset($annexMapping[$annexInfo->nombre]) ? $annexMapping[$annexInfo->nombre] : null;
                             if ($placeholder) {
@@ -176,7 +251,29 @@ class ProgramController extends Controller
                 $templateProcessor->setValue($placeholder, '(Anexo no proporcionado)');
             }
 
+            // Guardar el documento procesado temporalmente
             $templateProcessor->saveAs($finalDocxPath);
+
+            // ===== AGREGAR HEADER PERSONALIZADO =====
+            // En algunos casos las plantillas incluyen imágenes WMF/EMF que el lector de PhpWord no soporta.
+            // Si ocurre, hacemos un fallback: entregamos el documento sin la inyección de header
+            // y avisamos en el log para que se reemplacen los WMF por PNG/JPG en la plantilla.
+            try {
+                $phpWord = \PhpOffice\PhpWord\IOFactory::load($finalDocxPath);
+                $headerService = new DocumentHeaderService();
+
+                foreach ($phpWord->getSections() as $section) {
+                    $headerService->createCustomHeader($section, $companyData, $programData);
+                    $headerService->addFooterLogo($section, $companyData['logo_pie_de_pagina']);
+                }
+
+                $objWriter = \PhpOffice\PhpWord\IOFactory::createWriter($phpWord, 'Word2007');
+                $objWriter->save($finalDocxPath);
+            } catch (\Throwable $tex) {
+                Log::warning('Header injection skipped due to template image format issue: ' . $tex->getMessage());
+                // Nota: Para habilitar el header, reemplace imágenes WMF/EMF de la plantilla por PNG/JPG.
+            }
+
             return response()->download($finalDocxPath, 'Plan-Generado.docx')->deleteFileAfterSend(true);
 
         } catch (\Exception $e) {
