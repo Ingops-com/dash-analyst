@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { PlusCircle, FilePlus, ChevronDown } from 'lucide-react';
+import { PlusCircle, FilePlus, ChevronDown, FileText, AlertCircle, Pencil } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AddProgramDialog } from '@/components/add-program-dialog';
 import { AddAnnexDialog } from '@/components/add-annex-dialog';
@@ -36,6 +36,8 @@ type Program = {
     fecha: string;
     tipo: string;
     color: string;
+    template_path?: string;
+    description?: string;
     annexes: Annex[];
 };
 
@@ -45,10 +47,20 @@ type Props = {
 
 // Component Definition
 
-const AnnexCard = ({ anexo }: { anexo: Annex }) => (
+const AnnexCard = ({ anexo, onEdit }: { anexo: Annex; onEdit: (anexo: Annex) => void }) => (
     <Card className="bg-muted/40">
         <CardHeader className="py-3 px-4">
-            <CardTitle className="text-sm font-semibold">{anexo.nombre}</CardTitle>
+            <div className="flex justify-between items-start">
+                <CardTitle className="text-sm font-semibold">{anexo.nombre}</CardTitle>
+                <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-6 w-6 p-0"
+                    onClick={() => onEdit(anexo)}
+                >
+                    <Pencil className="h-3 w-3" />
+                </Button>
+            </div>
             <CardDescription className="text-xs">{anexo.codigo_anexo}</CardDescription>
         </CardHeader>
         <CardFooter className="py-2 px-4 flex justify-between text-xs text-muted-foreground">
@@ -63,33 +75,33 @@ export default function Programs({ programs: serverPrograms }: Props) {
     const [codeFilter, setCodeFilter] = useState('');
     const [isAddProgramOpen, setIsAddProgramOpen] = useState(false);
     const [isAddAnnexOpen, setIsAddAnnexOpen] = useState(false);
-    const [programs, setPrograms] = useState<Program[]>(serverPrograms);
+    const [editingProgram, setEditingProgram] = useState<Program | null>(null);
+    const [editingAnnex, setEditingAnnex] = useState<Annex | null>(null);
 
-    const filteredPrograms = programs.filter((p: Program) => 
+    const filteredPrograms = serverPrograms.filter((p: Program) => 
         p.nombre.toLowerCase().includes(nameFilter.toLowerCase()) && 
         p.codigo.toLowerCase().includes(codeFilter.toLowerCase())
     );
 
-    // --- HANDLERS ---
-    const handleSaveProgram = (data: Omit<Program, 'id' | 'color' | 'annexes'>) => {
-        setPrograms([...programs, { 
-            ...data, 
-            id: Math.max(0, ...programs.map(p => p.id)) + 1,
-            color: 'bg-gray-500',
-            annexes: []
-        }]);
-    };
-
-    const handleSaveAnnex = (data: Omit<Annex, 'id'>) => {
-        console.log('New Annex:', data);
-        /* Add logic to create annex and link it */
-    };
-
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Programas" />
-            <AddProgramDialog isOpen={isAddProgramOpen} onClose={() => setIsAddProgramOpen(false)} onSave={handleSaveProgram} />
-            <AddAnnexDialog isOpen={isAddAnnexOpen} onClose={() => setIsAddAnnexOpen(false)} onSave={handleSaveAnnex} programs={programs} />
+                <AddProgramDialog 
+                    isOpen={isAddProgramOpen || editingProgram !== null} 
+                    onClose={() => { setIsAddProgramOpen(false); setEditingProgram(null); }}
+                    program={editingProgram}
+                />
+                <AddAnnexDialog 
+                    isOpen={isAddAnnexOpen || editingAnnex !== null} 
+                    onClose={() => { setIsAddAnnexOpen(false); setEditingAnnex(null); }}
+                    programs={serverPrograms}
+                    annex={editingAnnex ? {
+                        ...editingAnnex,
+                        programIds: serverPrograms
+                            .filter(p => p.annexes.some(a => a.id === editingAnnex.id))
+                            .map(p => p.id)
+                    } : null}
+                />
 
             <div className="flex h-full flex-1 flex-col gap-4 p-4">
                 <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
@@ -115,9 +127,45 @@ export default function Programs({ programs: serverPrograms }: Props) {
                                     <div className="flex-1">
                                         <CardHeader>
                                             <div className="flex justify-between items-start">
-                                                <div><CardTitle>{program.nombre}</CardTitle><CardDescription>{program.codigo} &bull; V{program.version}</CardDescription></div>
-                                                <Badge variant="secondary">{program.tipo}</Badge>
+                                                <div>
+                                                    <CardTitle>{program.nombre}</CardTitle>
+                                                    <CardDescription>{program.codigo} &bull; V{program.version}</CardDescription>
+                                                    {program.description && (
+                                                        <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
+                                                            {program.description}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                                <div className="flex flex-col gap-2 items-end">
+                                                    <Badge variant="secondary">{program.tipo}</Badge>
+                                                    <div className="flex items-center gap-2">
+                                                        <Button 
+                                                            variant="ghost" 
+                                                            size="sm" 
+                                                            className="h-7 px-2"
+                                                            onClick={() => setEditingProgram(program)}
+                                                        >
+                                                            <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+                                                        </Button>
+                                                    </div>
+                                                    {program.template_path ? (
+                                                        <Badge variant="outline" className="text-green-600 border-green-600">
+                                                            <FileText className="mr-1 h-3 w-3" />
+                                                            Plantilla configurada
+                                                        </Badge>
+                                                    ) : (
+                                                        <Badge variant="outline" className="text-amber-600 border-amber-600">
+                                                            <AlertCircle className="mr-1 h-3 w-3" />
+                                                            Sin plantilla
+                                                        </Badge>
+                                                    )}
+                                                </div>
                                             </div>
+                                            {program.template_path && (
+                                                <p className="text-xs text-muted-foreground mt-2 font-mono bg-muted px-2 py-1 rounded">
+                                                    📄 {program.template_path}
+                                                </p>
+                                            )}
                                         </CardHeader>
                                         <CardContent>
                                             <Separator className="mb-4" />
@@ -125,12 +173,12 @@ export default function Programs({ programs: serverPrograms }: Props) {
                                             {program.annexes.length > 0 ? (
                                                 <Collapsible>
                                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                                                        {visibleAnnexes.map((anexo: Annex) => <AnnexCard key={anexo.id} anexo={anexo} />)}
+                                                 {visibleAnnexes.map((anexo: Annex) => <AnnexCard key={anexo.id} anexo={anexo} onEdit={setEditingAnnex} />)}
                                                     </div>
                                                     {hiddenAnnexes.length > 0 && (
                                                         <>
                                                             <CollapsibleContent className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mt-4">
-                                                                {hiddenAnnexes.map((anexo: Annex) => <AnnexCard key={anexo.id} anexo={anexo} />)}
+                                                        {hiddenAnnexes.map((anexo: Annex) => <AnnexCard key={anexo.id} anexo={anexo} onEdit={setEditingAnnex} />)}
                                                             </CollapsibleContent>
                                                             <div className="mt-4 flex justify-center">
                                                                 <CollapsibleTrigger asChild>

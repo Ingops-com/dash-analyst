@@ -14,6 +14,7 @@ class Annex extends Model
     protected $fillable = [
         'nombre',
         'codigo_anexo',
+        'placeholder',
         'tipo',
         'status'
     ];

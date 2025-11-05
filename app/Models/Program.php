@@ -14,7 +14,9 @@ class Program extends Model
         'version',
         'codigo',
         'fecha',
-        'tipo'
+        'tipo',
+        'template_path',
+        'description'
     ];
 
     protected $casts = [

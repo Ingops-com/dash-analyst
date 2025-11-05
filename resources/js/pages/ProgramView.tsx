@@ -311,9 +311,20 @@ export default function ProgramView() {
 
   const getFileUrl = (f: any) => {
     if (!f) return ''
-    if (typeof f === 'object' && 'url' in f) return f.url
+    if (typeof f === 'object' && 'url' in f) {
+      const u = (f as any).url as string
+      // Codificar espacios y caracteres especiales para evitar 404 por URL mal formada
+      try {
+        if (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('/')) {
+          return encodeURI(u)
+        }
+        return u
+      } catch {
+        return u
+      }
+    }
     try {
-      return URL.createObjectURL(f as unknown as Blob)
+      return URL.createObjectURL(f as Blob)
     } catch {
       return ''
     }

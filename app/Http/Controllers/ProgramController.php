@@ -33,6 +33,27 @@ class ProgramController extends Controller
         
         // Guardar el archivo en el disco 'public' (storage/app/public)
         $filePath = $file->storeAs($storagePath, $uniqueName, 'public');
+
+        // Verificar que el archivo realmente exista en el disco público (Windows puede comportarse distinto con rutas)
+        try {
+            $absPath = Storage::disk('public')->path($filePath);
+            if (!file_exists($absPath)) {
+                // Fallback: forzar guardado usando putFileAs
+                Log::warning("storeAs no materializó el archivo, intentando fallback putFileAs: {$filePath}");
+                Storage::disk('public')->putFileAs($storagePath, $file, $uniqueName);
+                // Recalcular path absoluto y verificar
+                $absPath = Storage::disk('public')->path($filePath);
+                if (!file_exists($absPath)) {
+                    Log::error("No se pudo guardar el archivo en disco público: {$filePath} (abs: {$absPath})");
+                } else {
+                    Log::info("Archivo guardado mediante fallback en: {$absPath}");
+                }
+            } else {
+                Log::info("Archivo guardado correctamente en: {$absPath}");
+            }
+        } catch (\Throwable $t) {
+            Log::error('Error verificando o guardando archivo en disco público: ' . $t->getMessage());
+        }
         
         // Crear el registro en la base de datos
         return CompanyAnnexSubmission::create([
@@ -71,7 +92,8 @@ class ProgramController extends Controller
                 'submission' => [
                     'id' => $submission->id,
                     'name' => $submission->file_name,
-                    'url' => asset('storage/' . $submission->file_path),
+                    // Usar ruta interna /public-storage para evitar 403 con symlink en dev/Windows
+                    'url' => url('public-storage/' . ltrim($submission->file_path, '/')),
                     'mime' => $submission->mime_type,
                 ],
             ]);
@@ -225,17 +247,19 @@ class ProgramController extends Controller
                 'version' => $program->version,
             ];
 
-            // Determinar la plantilla basada en el tipo de programa
-            if (isset($program->template_type) && $program->template_type === 'plan_saneamiento') {
-                $templatePath = storage_path('plantillas/planDeSaneamientoBasico/Plantilla.docx');
+            // Determinar la plantilla basada en template_path del programa
+            if (!empty($program->template_path)) {
+                // Usar la plantilla configurada en el programa
+                $templatePath = storage_path('plantillas/' . $program->template_path);
             } elseif ($program->id === 1) {
+                // Fallback para programas antiguos sin template_path configurado
                 $templatePath = storage_path('plantillas/planDeSaneamientoBasico/Plantilla.docx');
             } else {
-                throw new \Exception('Tipo de programa no soportado para generación de documento');
+                throw new \Exception('Este programa no tiene una plantilla configurada. Por favor asigne una plantilla en la configuración del programa.');
             }
 
             if (!file_exists($templatePath)) {
-                throw new \Exception("La plantilla para este tipo de programa no se encontró en: {$templatePath}");
+                throw new \Exception("La plantilla no se encontró en: {$templatePath}");
             }
 
             $templateProcessor = new TemplateProcessor($templatePath);
@@ -327,14 +351,20 @@ class ProgramController extends Controller
             ];
             foreach ($headerVars as $k => $v) { $templateProcessor->setValue($k, $v); }
 
-            // Reemplazar placeholders de IMÁGENES
-            $annexMapping = [
-                'Certificado de Fumigación' => 'Anexo 1',
-                'Factura de Insumos' => 'Anexo 2',
-                'Registro Fotográfico' => 'Anexo 3',
-                'Checklist Interno' => 'Anexo 4',
-                'Memorando Aprobación' => 'Anexo 5',
-            ];
+            // Helper para derivar placeholder si no está definido en BD
+            $derivePlaceholder = function (?Annex $annex) {
+                if (!$annex) return null;
+                if (!empty($annex->placeholder)) return $annex->placeholder;
+                // Intentar extraer un número del código del anexo
+                if (!empty($annex->codigo_anexo) && preg_match('/(\d+)/', $annex->codigo_anexo, $m)) {
+                    return 'Anexo ' . $m[1];
+                }
+                // Intentar por nombre
+                if (!empty($annex->nombre) && preg_match('/(\d+)/', $annex->nombre, $m)) {
+                    return 'Anexo ' . $m[1];
+                }
+                return null;
+            };
 
             // Procesar y guardar los anexos
             $annexSubmissions = [];
@@ -366,6 +396,7 @@ class ProgramController extends Controller
             // Agrupar por annex_id para manejar múltiples imágenes por anexo
             $submissionsByAnnex = $existingSubmissions->groupBy('annex_id');
             
+            $placeholdersWithImage = [];
             foreach ($submissionsByAnnex as $annexId => $submissions) {
                 // Por ahora, usar solo la primera imagen de cada anexo (PhpWord limita a 1 por placeholder)
                 // TODO: Implementar soporte para múltiples imágenes por anexo usando cloneBlock
@@ -386,7 +417,7 @@ class ProgramController extends Controller
                     $tempImagePaths[] = $imagePath;
 
                     $annexInfo = Annex::find($annexId);
-                    $placeholder = $annexInfo && isset($annexMapping[$annexInfo->nombre]) ? $annexMapping[$annexInfo->nombre] : null;
+                    $placeholder = $derivePlaceholder($annexInfo);
                     
                     if ($placeholder) {
                         $templateProcessor->setImageValue($placeholder, [
@@ -394,14 +425,21 @@ class ProgramController extends Controller
                             'width' => 500,
                             'ratio' => true
                         ]);
+                        $placeholdersWithImage[$placeholder] = true;
                         
                         Log::info("Anexo insertado en documento: {$annexInfo->nombre} ({$submissions->count()} archivo(s) en BD, usando el primero)");
                     }
                 }
             }
 
-            foreach ($annexMapping as $placeholder) {
-                $templateProcessor->setValue($placeholder, '(Anexo no proporcionado)');
+            // Asegurar que cada anexo del programa tenga algún valor en el documento, incluso si no hay imagen
+            $programAnnexIds = DB::table('program_annexes')->where('program_id', $program->id)->pluck('annex_id')->toArray();
+            $programAnnexes = Annex::whereIn('id', $programAnnexIds)->get();
+            foreach ($programAnnexes as $ax) {
+                $ph = $derivePlaceholder($ax);
+                if ($ph && empty($placeholdersWithImage[$ph])) {
+                    $templateProcessor->setValue($ph, '(Anexo no proporcionado)');
+                }
             }
 
             // Guardar el documento procesado temporalmente
@@ -463,10 +501,21 @@ class ProgramController extends Controller
                     ->get();
 
                 foreach ($subs as $s) {
+                    // Evitar listar archivos con ruta inexistente (p.ej. subidas antiguas)
+                    try {
+                        $exists = Storage::disk('public')->exists($s->file_path);
+                    } catch (\Throwable $t) {
+                        $exists = file_exists(storage_path('app/public/' . ltrim($s->file_path, '/')));
+                    }
+                    if (!$exists) {
+                        Log::warning("Archivo faltante en BD, omitido en vista: {$s->file_path} (submission {$s->id})");
+                        continue;
+                    }
                     $files[] = [
                         'id' => $s->id,
                         'name' => $s->file_name,
-                        'url' => asset('storage/' . $s->file_path),
+                        // Usar ruta interna /public-storage para evitar 403 con symlink en dev/Windows
+                        'url' => url('public-storage/' . ltrim($s->file_path, '/')),
                         'mime' => $s->mime_type,
                     ];
                 }
