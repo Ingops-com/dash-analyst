@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Inertia\Inertia;
+use App\Models\User;
 
 class UserController extends Controller
 {
@@ -11,7 +13,23 @@ class UserController extends Controller
      */
     public function index()
     {
-        //
+        // Fetch users and map fields to what the frontend expects
+        $users = User::select('id', 'name', 'rol', 'email', 'habilitado')
+            ->orderBy('id')
+            ->get()
+            ->map(function ($u) {
+                return [
+                    'id' => $u->id,
+                    'nombre' => $u->name,
+                    'rol' => $u->rol,
+                    'correo' => $u->email,
+                    'habilitado' => (bool) $u->habilitado,
+                ];
+            });
+
+        return Inertia::render('UsersList', [
+            'users' => $users,
+        ]);
     }
 
     /**

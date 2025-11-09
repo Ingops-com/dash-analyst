@@ -22,10 +22,10 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 // Dummy users removed — production should provide users via server props
-const initialUsers: any[] = []
 
-export default function UsersList() {
-    const [users, setUsers] = useState(initialUsers);
+
+export default function UsersList({ users: serverUsers = [] }: { users: any[] }) {
+    const [users, setUsers] = useState(serverUsers);
     const [nameFilter, setNameFilter] = useState('');
     const [emailFilter, setEmailFilter] = useState('');
     const [nitFilter, setNitFilter] = useState('');
@@ -35,8 +35,7 @@ export default function UsersList() {
     const filteredUsers = users.filter(
         (user) =>
             user.nombre.toLowerCase().includes(nameFilter.toLowerCase()) &&
-            user.correo.toLowerCase().includes(emailFilter.toLowerCase()) &&
-            user.nir_empresa.toLowerCase().includes(nitFilter.toLowerCase())
+            user.correo.toLowerCase().includes(emailFilter.toLowerCase()) 
     );
 
     const handleOpenCreate = () => {
@@ -89,12 +88,6 @@ export default function UsersList() {
                             value={emailFilter}
                             onChange={(e) => setEmailFilter(e.target.value)}
                         />
-                        <Input
-                            placeholder="Filtrar por NIT empresa..."
-                            className="max-w-sm"
-                            value={nitFilter}
-                            onChange={(e) => setNitFilter(e.target.value)}
-                        />
                     </div>
                     <Button onClick={handleOpenCreate}>Agregar Nuevo Usuario</Button>
                 </div>
@@ -104,10 +97,8 @@ export default function UsersList() {
                             <TableRow>
                                 <TableHead>ID</TableHead>
                                 <TableHead>Nombre</TableHead>
-                                <TableHead>Username</TableHead>
                                 <TableHead>Rol</TableHead>
                                 <TableHead>Correo</TableHead>
-                                <TableHead>NIR Empresa</TableHead>
                                 <TableHead>Acciones</TableHead>
                             </TableRow>
                         </TableHeader>
@@ -116,10 +107,8 @@ export default function UsersList() {
                                 <TableRow key={user.id}>
                                     <TableCell>{user.id}</TableCell>
                                     <TableCell>{user.nombre}</TableCell>
-                                    <TableCell>{user.username}</TableCell>
                                     <TableCell>{user.rol}</TableCell>
                                     <TableCell>{user.correo}</TableCell>
-                                    <TableCell>{user.nir_empresa}</TableCell>
                                     <TableCell className="space-x-2">
                                         <Button variant={user.habilitado ? 'secondary' : 'default'}>
                                             {user.habilitado ? 'Deshabilitar' : 'Habilitar'}
