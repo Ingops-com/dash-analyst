@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
-import { Head } from '@inertiajs/react';
+import { Head, usePage, router } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -11,39 +11,50 @@ import { ConfigureProgramsDialog } from '@/components/configure-programs-dialog'
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Listado Maestro', href: '/listado-maestro' }];
 
-// Dummy data removed — production reads from server
-const allCompanies: any[] = []
-const allPrograms: any[] = []
-const allAnnexes: any[] = []
-const initialMasterConfig: Record<string, any> = {}
+// Data comes from server via Inertia props
+type PageProps = {
+    companies: Array<{ id: number; nombre: string; id_empresa: string }>
+    programs: Array<{ id: number; nombre: string; codigo: string; tipo: string }>
+    annexes: Array<{ id: number; nombre: string; codigo_anexo: string; programId: number }>
+    masterConfig: Record<string, Record<string, number[]>>
+}
 
 
 export default function MasterList() {
-    const [masterConfig, setMasterConfig] = useState(initialMasterConfig);
+        const { props } = usePage<PageProps>() as any
+        const allCompanies = (props?.companies ?? []) as PageProps['companies']
+        const allPrograms = (props?.programs ?? []) as PageProps['programs']
+        const allAnnexes = (props?.annexes ?? []) as PageProps['annexes']
+        const initialMasterConfig = (props?.masterConfig ?? {}) as PageProps['masterConfig']
+
+        const [masterConfig, setMasterConfig] = useState<Record<string, any>>(initialMasterConfig);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
-    const [selectedCompany, setSelectedCompany] = useState(null);
+    const [selectedCompany, setSelectedCompany] = useState<null | { id: number; nombre: string; id_empresa: string }>(null);
     
     // --- NEW STATES FOR FILTERS ---
     const [nameFilter, setNameFilter] = useState('');
     const [idFilter, setIdFilter] = useState('');
 
-    const handleOpenDialog = (company) => {
+    const handleOpenDialog = (company: { id: number; nombre: string; id_empresa: string }) => {
         setSelectedCompany(company);
         setIsDialogOpen(true);
     };
 
-    const handleUpdateConfig = (companyId, newConfig) => {
-        setMasterConfig(prev => ({
-            ...prev,
-            [companyId]: newConfig,
-        }));
+    const handleUpdateConfig = (companyId: number, newConfig: Record<string, number[]>) => {
+        // Update UI optimistically
+        setMasterConfig(prev => ({ ...prev, [companyId]: newConfig }));
+        // Persist to backend
+        router.post('/listado-maestro/config', {
+            company_id: companyId,
+            config: newConfig,
+        }, { preserveScroll: true });
     };
 
     // --- FILTERING LOGIC ---
     const filteredCompanies = allCompanies.filter(
         company =>
             company.nombre.toLowerCase().includes(nameFilter.toLowerCase()) &&
-            company.id_empresa.toLowerCase().includes(idFilter.toLowerCase())
+            String(company.id_empresa ?? '').toLowerCase().includes(idFilter.toLowerCase())
     );
 
     return (
@@ -55,7 +66,7 @@ export default function MasterList() {
                     isOpen={isDialogOpen}
                     onClose={() => setIsDialogOpen(false)}
                     company={selectedCompany}
-                    companyConfig={masterConfig[selectedCompany.id] || {}}
+                    companyConfig={masterConfig[String(selectedCompany.id)] || {}}
                     allPrograms={allPrograms}
                     allAnnexes={allAnnexes}
                     onConfigUpdate={handleUpdateConfig}
