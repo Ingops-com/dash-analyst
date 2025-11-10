@@ -42,11 +42,9 @@ interface Company {
   industry?: string
   employeesRange?: string
   status?: 'activa' | 'inactiva'
+  assigned?: boolean
   notes?: string
 }
-
-// Mock data removed — use server props in production
-const companiesData: Company[] = []
 
 // --- HELPERS ---
 const nitClean = (nit: string) => nit.replace(/[^0-9kK]/g, '').toUpperCase()

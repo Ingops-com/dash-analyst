@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\User;
+use App\Models\Company;
 
 class UserController extends Controller
 {
@@ -13,8 +14,9 @@ class UserController extends Controller
      */
     public function index()
     {
-        // Fetch users and map fields to what the frontend expects
-        $users = User::select('id', 'name', 'rol', 'email', 'habilitado')
+        // Fetch users with assigned companies and map fields
+        $users = User::with('companies:id,nombre')
+            ->select('id', 'name', 'rol', 'email', 'habilitado')
             ->orderBy('id')
             ->get()
             ->map(function ($u) {
@@ -24,12 +26,36 @@ class UserController extends Controller
                     'rol' => $u->rol,
                     'correo' => $u->email,
                     'habilitado' => (bool) $u->habilitado,
+                    'empresasAsociadas' => $u->companies->pluck('id')->values(),
                 ];
             });
 
+        $companies = Company::select('id', 'nombre', 'nit_empresa as nit', 'logo_izquierdo as logo')
+            ->orderBy('nombre')
+            ->get();
+
         return Inertia::render('UsersList', [
             'users' => $users,
+            'companies' => $companies,
         ]);
+    }
+
+    /**
+     * Update companies assigned to a user.
+     */
+    public function updateCompanies(Request $request, int $id)
+    {
+        $user = User::findOrFail($id);
+
+        $validated = $request->validate([
+            'company_ids' => ['array'],
+            'company_ids.*' => ['integer', 'exists:companies,id'],
+        ]);
+
+        $ids = $validated['company_ids'] ?? [];
+        $user->companies()->sync($ids);
+
+        return back()->with('success', 'Empresas asignadas actualizadas');
     }
 
     /**

@@ -41,6 +41,7 @@ Route::middleware(['auth'])->group(function () {
     // Admin routes
     Route::middleware(['role:admin'])->group(function () {
         Route::get('/lista-usuarios', [UserController::class, 'index'])->name('users.list');
+        Route::put('/users/{id}/companies', [UserController::class, 'updateCompanies'])->name('users.companies.update');
         Route::get('/listado-maestro', [MasterListController::class, 'index'])->name('master.list');
         Route::get('/documentos-empresas', [UserDocumentsController::class, 'index'])->name('user.documents');
     });

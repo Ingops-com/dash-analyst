@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Company extends Model
 {
@@ -41,5 +42,10 @@ class Company extends Model
     {
         return $this->belongsToMany(Program::class, 'company_program_config')
                     ->withPivot('annex_id');
+    }
+
+    public function users(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'company_user', 'company_id', 'user_id')->withTimestamps();
     }
 }

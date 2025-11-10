@@ -21,19 +21,18 @@ import { Separator } from './ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 
 
-// Company mock removed — production should provide this data via server props
-const allCompanies: any[] = []
+// Companies will be provided from server via props
 
 const defaultFormState = {
     nombre: '',
     username: '',
     password: '',
     correo: '',
-    rol: 'Analista',
+    rol: 'analista',
     empresasAsociadas: [],
 };
 
-export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit }) {
+export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit, companies = [] }) {
     const [formData, setFormData] = useState(defaultFormState);
     const [companySearch, setCompanySearch] = useState('');
 
@@ -72,9 +71,9 @@ export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit }) {
         setFormData(prev => ({ ...prev, empresasAsociadas: newEmpresas }));
     };
 
-    const filteredCompanies = allCompanies.filter(c =>
+    const filteredCompanies = companies.filter((c: any) =>
         c.nombre.toLowerCase().includes(companySearch.toLowerCase()) ||
-        c.nit.toLowerCase().includes(companySearch.toLowerCase())
+        (c.nit ?? '').toLowerCase().includes(companySearch.toLowerCase())
     );
 
     return (
@@ -117,7 +116,7 @@ export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit }) {
                 </div>
 
                 {/* Conditional Section for "Analista" role */}
-                {formData.rol === 'Analista' && (
+                {['admin'].includes(String(formData.rol).toLowerCase()) && (
                     <>
                         <Separator />
                         <div className="space-y-4 pt-4">

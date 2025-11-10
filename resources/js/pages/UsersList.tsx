@@ -13,6 +13,7 @@ import { Head } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AddUserDialog } from '@/components/add-user-dialog';
+import { router } from '@inertiajs/react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -24,7 +25,7 @@ const breadcrumbs: BreadcrumbItem[] = [
 // Dummy users removed — production should provide users via server props
 
 
-export default function UsersList({ users: serverUsers = [] }: { users: any[] }) {
+export default function UsersList({ users: serverUsers = [], companies = [] }: { users: any[]; companies: any[] }) {
     const [users, setUsers] = useState(serverUsers);
     const [nameFilter, setNameFilter] = useState('');
     const [emailFilter, setEmailFilter] = useState('');
@@ -55,12 +56,16 @@ export default function UsersList({ users: serverUsers = [] }: { users: any[] })
 
     const handleSaveUser = (userData) => {
         if (editingUser) {
-            // Logic to update user
-            setUsers(users.map((u) => (u.id === editingUser.id ? { ...u, ...userData } : u)));
-        } else {
-            // Logic to add new user
-            setUsers([...users, { ...userData, id: users.length + 1, habilitado: true }]);
+            router.put(`/users/${editingUser.id}/companies`, { company_ids: userData.empresasAsociadas }, {
+                onSuccess: () => {
+                    setUsers(users.map((u) => (u.id === editingUser.id ? { ...u, empresasAsociadas: userData.empresasAsociadas } : u)));
+                    handleCloseDialog();
+                },
+            });
+            return;
         }
+        // For create flow (not implemented server-side), keep local behavior for now
+        setUsers([...users, { ...userData, id: users.length + 1, habilitado: true }]);
         handleCloseDialog();
     };
 
@@ -72,6 +77,7 @@ export default function UsersList({ users: serverUsers = [] }: { users: any[] })
                 onClose={handleCloseDialog}
                 onSaveUser={handleSaveUser}
                 userToEdit={editingUser}
+                companies={companies}
             />
             <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
                 <div className="flex justify-between items-center mb-4">
