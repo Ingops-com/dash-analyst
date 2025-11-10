@@ -38,10 +38,14 @@ Route::middleware(['auth'])->group(function () {
         return response()->file($absolute);
     })->where('path', '.*')->name('public.storage');
     
-    // Admin routes
+    // admin routes
     Route::middleware(['role:admin,super-admin'])->group(function () {
         Route::get('/lista-usuarios', [UserController::class, 'index'])->name('users.list');
+        Route::post('/users', [UserController::class, 'store'])->name('users.store');
+        Route::put('/users/{id}', [UserController::class, 'update'])->name('users.update');
         Route::put('/users/{id}/companies', [UserController::class, 'updateCompanies'])->name('users.companies.update');
+        Route::put('/users/{id}/status', [UserController::class, 'updateStatus'])->name('users.status.update');
+        Route::delete('/users/{id}', [UserController::class, 'destroy'])->name('users.destroy');
         Route::get('/listado-maestro', [MasterListController::class, 'index'])->name('master.list');
         Route::get('/documentos-empresas', [UserDocumentsController::class, 'index'])->name('user.documents');
     });

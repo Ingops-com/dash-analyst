@@ -25,7 +25,6 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 
 const defaultFormState = {
     nombre: '',
-    username: '',
     password: '',
     correo: '',
     rol: 'analista',
@@ -40,9 +39,8 @@ export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit, compani
         if (userToEdit) {
             setFormData({
                 nombre: userToEdit.nombre || '',
-                username: userToEdit.username || '',
                 correo: userToEdit.correo || '',
-                rol: userToEdit.rol || 'Analista',
+                rol: userToEdit.rol || 'analista',
                 empresasAsociadas: userToEdit.empresasAsociadas || [],
                 password: '', // Password should be empty for editing
             });
@@ -65,9 +63,16 @@ export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit, compani
     };
 
     const toggleEmpresa = (empresaId) => {
-        const newEmpresas = formData.empresasAsociadas.includes(empresaId)
-            ? formData.empresasAsociadas.filter(id => id !== empresaId)
-            : [...formData.empresasAsociadas, empresaId];
+        const isUserRole = String(formData.rol).toLowerCase() === 'usuario';
+        let newEmpresas = [] as any[];
+        if (isUserRole) {
+            // Solo una empresa para 'usuario'
+            newEmpresas = formData.empresasAsociadas.includes(empresaId) ? [] : [empresaId];
+        } else {
+            newEmpresas = formData.empresasAsociadas.includes(empresaId)
+                ? formData.empresasAsociadas.filter(id => id !== empresaId)
+                : [...formData.empresasAsociadas, empresaId];
+        }
         setFormData(prev => ({ ...prev, empresasAsociadas: newEmpresas }));
     };
 
@@ -92,10 +97,6 @@ export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit, compani
                         <Input id="nombre" value={formData.nombre} onChange={handleChange} className="col-span-3" />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="username" className="text-right">Usuario</Label>
-                        <Input id="username" value={formData.username} onChange={handleChange} className="col-span-3" />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="password" className="text-right">Contraseña</Label>
                         <Input id="password" type="password" value={formData.password} onChange={handleChange} className="col-span-3" placeholder={userToEdit ? 'Dejar en blanco para no cambiar' : ''} />
                     </div>
@@ -108,15 +109,16 @@ export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit, compani
                         <Select onValueChange={handleSelectChange} value={formData.rol}>
                             <SelectTrigger className="col-span-3"><SelectValue /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="Usuario">Usuario</SelectItem>
-                                <SelectItem value="Analista">Analista</SelectItem>
+                                <SelectItem value="usuario">Usuario</SelectItem>
+                                <SelectItem value="analista">Analista</SelectItem>
+                                <SelectItem value="admin">Admin</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
                 </div>
 
-                {/* Conditional Section for "Analista" role */}
-                {['admin'].includes(String(formData.rol).toLowerCase()) && (
+                {/* Asignar empresas: visible para todos excepto super-admin */}
+                {String(formData.rol).toLowerCase() !== 'super-admin' && (
                     <>
                         <Separator />
                         <div className="space-y-4 pt-4">

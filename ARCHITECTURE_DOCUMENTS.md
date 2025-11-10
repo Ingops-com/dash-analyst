@@ -218,7 +218,7 @@ INSERT INTO program_annexes (program_id, annex_id) VALUES
    - Mostrar descripción del programa en la tarjeta
    - Selector de archivos para subir nueva plantilla
 
-2. **Panel de Administración de Plantillas**
+2. **Panel de administración de Plantillas**
    - Listar todas las plantillas disponibles
    - Upload de nuevas plantillas
    - Preview de placeholders en cada plantilla

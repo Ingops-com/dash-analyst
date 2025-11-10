@@ -58,7 +58,7 @@ class CompanyController extends Controller
         // Marcar empresas asignadas al usuario y filtrar si no es admin
         $user = $request->user();
         $role = strtolower((string)($user->rol ?? ''));
-        $isAdmin = in_array($role, ['super-admin']);
+        $isadmin = in_array($role, ['super-admin']);
         $assignedCompanyIds = DB::table('company_user')
             ->where('user_id', $user->id)
             ->pluck('company_id')
@@ -69,7 +69,7 @@ class CompanyController extends Controller
         }
         unset($co);
 
-        if (! $isAdmin) {
+        if (! $isadmin) {
             $companies = array_values(array_filter($companies, fn ($co) => $co['assigned']));
         }
 

@@ -29,9 +29,9 @@ export function AppSidebar() {
     const user = (auth?.user || {}) as { rol?: string };
 
     const role = String(user.rol || '').toLowerCase();
-    const isAdmin = role === 'admin';
+    const isadmin = role === 'admin';
     const isAnalyst = role === 'analista';
-    const isSuperAdmin = role === 'super-admin';
+    const isSuperadmin = role === 'super-admin';
 
     const mainNavItems: NavItem[] = [
         {
@@ -46,23 +46,23 @@ export function AppSidebar() {
         },
     ];
 
-    if (isAnalyst || isAdmin || isSuperAdmin) {
+    if (isAnalyst || isadmin || isSuperadmin) {
         mainNavItems.push(
             {
                 title: 'Empresas',
                 href: '/lista-empresas',
                 icon: Building2,
-            },
-            {
-                title: 'Programas',
-                href: '/programas',
-                icon: BookOpen,
             }
         );
     }
 
-    if (isAdmin || isSuperAdmin) {
+    if (isadmin || isSuperadmin) {
         mainNavItems.push(
+            {
+                title: 'Programas',
+                href: '/programas',
+                icon: BookOpen,
+            },
             {
                 title: 'Listado Maestro',
                 href: '/listado-maestro',

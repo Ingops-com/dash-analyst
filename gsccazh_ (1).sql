@@ -1,4 +1,4 @@
--- phpMyAdmin SQL Dump
+-- phpMyadmin SQL Dump
 -- version 5.2.1
 -- https://www.phpmyadmin.net/
 --
@@ -466,9 +466,9 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `name`, `username`, `email`, `email_verified_at`, `password`, `rol`, `company_id`, `habilitado`, `remember_token`, `created_at`, `updated_at`) VALUES
-(1, 'Admin General', 'admin', 'admin@cazh.com', NULL, '$2y$12$RqPoCxwT/prgYC2VTLuyRuD/8xn2c4cOwYfRckdczQsPvmz03IxAW', 'administrador', NULL, 1, NULL, '2025-10-19 10:03:33', '2025-10-19 10:03:33'),
-(2, 'Analista Senior', 'analista1', 'analista1@cazh.com', NULL, '$2y$12$RqPoCxwT/prgYC2VTLuyRuD/8xn2c4cOwYfRckdczQsPvmz03IxAW', 'analista', NULL, 1, NULL, '2025-10-19 10:03:33', '2025-10-19 10:03:33'),
-(3, 'Analista Junior', 'analista2', 'analista2@cazh.com', NULL, '$2y$12$RqPoCxwT/prgYC2VTLuyRuD/8xn2c4cOwYfRckdczQsPvmz03IxAW', 'analista', NULL, 1, NULL, '2025-10-19 10:03:33', '2025-10-19 10:03:33'),
+(1, 'admin General', 'admin', 'admin@cazh.com', NULL, '$2y$12$RqPoCxwT/prgYC2VTLuyRuD/8xn2c4cOwYfRckdczQsPvmz03IxAW', 'administrador', NULL, 1, NULL, '2025-10-19 10:03:33', '2025-10-19 10:03:33'),
+(2, 'analista Senior', 'analista1', 'analista1@cazh.com', NULL, '$2y$12$RqPoCxwT/prgYC2VTLuyRuD/8xn2c4cOwYfRckdczQsPvmz03IxAW', 'analista', NULL, 1, NULL, '2025-10-19 10:03:33', '2025-10-19 10:03:33'),
+(3, 'analista Junior', 'analista2', 'analista2@cazh.com', NULL, '$2y$12$RqPoCxwT/prgYC2VTLuyRuD/8xn2c4cOwYfRckdczQsPvmz03IxAW', 'analista', NULL, 1, NULL, '2025-10-19 10:03:33', '2025-10-19 10:03:33'),
 (4, 'Juan Pérez (Frescos)', 'jperez', 'juan.perez@frescos.com', NULL, '$2y$12$RqPoCxwT/prgYC2VTLuyRuD/8xn2c4cOwYfRckdczQsPvmz03IxAW', 'usuario', 1, 1, NULL, '2025-10-19 10:03:33', '2025-10-19 10:03:33'),
 (5, 'Maria Lopez (Lácteos)', 'mlopez', 'maria.lopez@lacteosdelcampo.com', NULL, '$2y$12$RqPoCxwT/prgYC2VTLuyRuD/8xn2c4cOwYfRckdczQsPvmz03IxAW', 'usuario', 2, 1, NULL, '2025-10-19 10:03:33', '2025-10-19 10:03:33'),
 (6, 'David Ríos (Carnes)', 'drios', 'david.rios@carnesdelsur.co', NULL, '$2y$12$RqPoCxwT/prgYC2VTLuyRuD/8xn2c4cOwYfRckdczQsPvmz03IxAW', 'usuario', 3, 1, NULL, '2025-10-19 10:03:33', '2025-10-19 10:03:33'),

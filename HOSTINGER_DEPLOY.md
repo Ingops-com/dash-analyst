@@ -167,7 +167,7 @@ ls -la public/storage
 
 ### Opción A: Importar desde hPanel (RECOMENDADO)
 
-1. Ve a **hPanel** > **Base de datos** > **phpMyAdmin**
+1. Ve a **hPanel** > **Base de datos** > **phpMyadmin**
 2. Selecciona tu base de datos
 3. Clic en **Importar**
 4. Sube tu archivo `.sql`

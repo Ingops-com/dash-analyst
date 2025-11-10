@@ -13,7 +13,7 @@ import { Head } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AddUserDialog } from '@/components/add-user-dialog';
-import { router } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -25,11 +25,10 @@ const breadcrumbs: BreadcrumbItem[] = [
 // Dummy users removed — production should provide users via server props
 
 
-export default function UsersList({ users: serverUsers = [], companies = [] }: { users: any[]; companies: any[] }) {
+export default function UsersList({ users: serverUsers = [], companies = [], canCreate = false }: { users: any[]; companies: any[]; canCreate?: boolean }) {
     const [users, setUsers] = useState(serverUsers);
     const [nameFilter, setNameFilter] = useState('');
     const [emailFilter, setEmailFilter] = useState('');
-    const [nitFilter, setNitFilter] = useState('');
     const [isAddUserOpen, setIsAddUserOpen] = useState(false);
     const [editingUser, setEditingUser] = useState(null);
 
@@ -55,19 +54,54 @@ export default function UsersList({ users: serverUsers = [], companies = [] }: {
     };
 
     const handleSaveUser = (userData) => {
+        const payload = {
+            name: userData.nombre,
+            email: userData.correo,
+            rol: String(userData.rol).toLowerCase(),
+            company_ids: userData.empresasAsociadas,
+        } as any;
+
         if (editingUser) {
-            router.put(`/users/${editingUser.id}/companies`, { company_ids: userData.empresasAsociadas }, {
+            router.put(`/users/${editingUser.id}`, payload, {
                 onSuccess: () => {
-                    setUsers(users.map((u) => (u.id === editingUser.id ? { ...u, empresasAsociadas: userData.empresasAsociadas } : u)));
+                    setUsers(users.map((u) => (u.id === editingUser.id ? { ...u, ...userData } : u)));
                     handleCloseDialog();
+                },
+                onError: (errors) => {
+                    const msg = typeof errors === 'object' ? JSON.stringify(errors) : String(errors);
+                    alert('Error al actualizar usuario: ' + msg);
                 },
             });
             return;
         }
-        // For create flow (not implemented server-side), keep local behavior for now
-        setUsers([...users, { ...userData, id: users.length + 1, habilitado: true }]);
-        handleCloseDialog();
+        // Crear: requiere password
+        const password = userData.password || '';
+        router.post(`/users`, { ...payload, password }, {
+            onSuccess: () => {
+                // Recargar o confiar en respuesta; aquí actualizamos localmente
+                setUsers([...users, { ...userData, id: users.length + 1, habilitado: true }]);
+                handleCloseDialog();
+            },
+            onError: (errors) => {
+                const msg = typeof errors === 'object' ? JSON.stringify(errors) : String(errors);
+                alert('Error al crear usuario: ' + msg);
+            },
+        });
     };
+
+    const toggleUserStatus = (user) => {
+        const next = !user.habilitado;
+        router.put(`/users/${user.id}/status`, { habilitado: next }, {
+            onSuccess: () => {
+                setUsers(users.map(u => u.id === user.id ? { ...u, habilitado: next } : u));
+            },
+        });
+    };
+
+    const page = usePage();
+    const me = ((page as any).props?.auth?.user ?? {}) as any;
+    const myRole = String(me?.rol ?? '').toLowerCase();
+    const canCreateUser = canCreate;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -95,7 +129,9 @@ export default function UsersList({ users: serverUsers = [], companies = [] }: {
                             onChange={(e) => setEmailFilter(e.target.value)}
                         />
                     </div>
-                    <Button onClick={handleOpenCreate}>Agregar Nuevo Usuario</Button>
+                    {canCreateUser && (
+                        <Button onClick={handleOpenCreate}>Agregar Nuevo Usuario</Button>
+                    )}
                 </div>
                 <div className="relative flex-1 overflow-hidden rounded-xl border border-sidebar-border/70 md:min-h-min dark:border-sidebar-border">
                     <Table>
@@ -116,12 +152,21 @@ export default function UsersList({ users: serverUsers = [], companies = [] }: {
                                     <TableCell>{user.rol}</TableCell>
                                     <TableCell>{user.correo}</TableCell>
                                     <TableCell className="space-x-2">
-                                        <Button variant={user.habilitado ? 'secondary' : 'default'}>
+                                        <Button variant={user.habilitado ? 'secondary' : 'default'} onClick={() => toggleUserStatus(user)}>
                                             {user.habilitado ? 'Deshabilitar' : 'Habilitar'}
                                         </Button>
                                         <Button variant="outline" onClick={() => handleOpenEdit(user)}>Editar</Button>
-                                        <Button variant="destructive">Eliminar</Button>
-                                    </TableCell>
+                                        <Button variant="destructive" onClick={() => {
+                                            if (!confirm('¿Eliminar este usuario?')) return;
+                                            router.delete(`/users/${user.id}`, {
+                                                onSuccess: () => setUsers(users.filter(u => u.id !== user.id)),
+                                                onError: (errors) => {
+                                                    const msg = (errors as any)?.delete || (typeof errors === 'object' ? JSON.stringify(errors) : String(errors));
+                                                    alert('No se pudo eliminar: ' + msg);
+                                                },
+                                            });
+                                        }}>Eliminar</Button>
+                </TableCell>
                                 </TableRow>
                             ))}
                         </TableBody>
