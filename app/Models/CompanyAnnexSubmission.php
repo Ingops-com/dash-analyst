@@ -16,6 +16,7 @@ class CompanyAnnexSubmission extends Model
         'file_path',
         'file_name',
         'mime_type',
+        'content_text',
         'file_size',
         'status',
         'submitted_by',

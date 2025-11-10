@@ -36,6 +36,7 @@ interface AddAnnexDialogProps {
         nombre: string;
         codigo_anexo: string;
         placeholder?: string;
+        content_type?: string;
         tipo: string;
         programIds?: number[];
     } | null;
@@ -45,6 +46,7 @@ const defaultFormState = {
     nombre: '',
     codigo_anexo: '',
     placeholder: '',
+    content_type: 'image',
     tipo: 'ISO 22000',
     programIds: [] as number[],
 };
@@ -63,6 +65,7 @@ export function AddAnnexDialog({ isOpen, onClose, programs, annex = null }: AddA
                 nombre: annex.nombre || '',
                 codigo_anexo: annex.codigo_anexo || '',
                 placeholder: annex.placeholder || '',
+                content_type: annex.content_type || 'image',
                 tipo: annex.tipo || 'ISO 22000',
                 programIds: annex.programIds || [],
             });
@@ -92,6 +95,17 @@ export function AddAnnexDialog({ isOpen, onClose, programs, annex = null }: AddA
             setErrors((prev) => {
                 const newErrors = { ...prev };
                 delete newErrors.tipo;
+                return newErrors;
+            });
+        }
+    };
+
+    const handleContentTypeChange = (value: string) => {
+        setFormData((prev) => ({ ...prev, content_type: value }));
+        if (errors.content_type) {
+            setErrors((prev) => {
+                const newErrors = { ...prev };
+                delete newErrors.content_type;
                 return newErrors;
             });
         }
@@ -189,6 +203,20 @@ export function AddAnnexDialog({ isOpen, onClose, programs, annex = null }: AddA
                             />
                             <p className="text-xs text-muted-foreground mt-1">Nombre de la variable en la plantilla DOCX (sin ${`{}`}).</p>
                             {errors.placeholder && <p className="text-sm text-red-500 mt-1">{errors.placeholder}</p>}
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="content_type" className="text-right">Tipo de Contenido</Label>
+                        <div className="col-span-3">
+                            <Select onValueChange={handleContentTypeChange} value={formData.content_type}>
+                                <SelectTrigger className={errors.content_type ? 'border-red-500' : ''}><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="image">Imagen</SelectItem>
+                                    <SelectItem value="text">Texto</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground mt-1">Define si el anexo contendrá una imagen o texto.</p>
+                            {errors.content_type && <p className="text-sm text-red-500 mt-1">{errors.content_type}</p>}
                         </div>
                     </div>
                     {/* --- FIELD CHANGED HERE --- */}

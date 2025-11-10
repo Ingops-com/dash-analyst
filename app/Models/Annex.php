@@ -15,6 +15,7 @@ class Annex extends Model
         'nombre',
         'codigo_anexo',
         'placeholder',
+        'content_type',
         'tipo',
         'status'
     ];

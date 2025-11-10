@@ -4,6 +4,8 @@ import AppLayout from '@/layouts/app-layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { RichTextEditor } from '@/components/RichTextEditor';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -14,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 // Tipos, Datos y Helpers (sin cambios)
 export type AnnexType = 'IMAGES' | 'PDF' | 'WORD' | 'XLSX' | 'FORMATO';
 interface Poe { id: number; date: string }
-interface Annex { id: number; name: string; type: AnnexType; files: any[] }
+interface Annex { id: number; name: string; type: AnnexType; content_type?: string; content_text?: string; files: any[] }
 interface Program { id: number; name: string; annexes: Annex[]; poes: Poe[] }
 const typeLabel: Record<AnnexType, string> = { IMAGES: 'Imágenes', PDF: 'PDF', WORD: 'Word', XLSX: 'Excel', FORMATO: 'Formato' };
 const typeAccept: Record<AnnexType, string> = { IMAGES: 'image/*', PDF: 'application/pdf', WORD: '.doc,.docx', XLSX: '.xls,.xlsx', FORMATO: '' };
@@ -41,11 +43,20 @@ export default function ProgramView() {
   const [uploadOpenFor, setUploadOpenFor] = useState<number | null>(null);
   const [viewOpenFor, setViewOpenFor] = useState<{ kind: 'ANNEX' | 'POE' | null; id?: number }>({ kind: null });
   const [isGenerating, setIsGenerating] = useState(false);
+  const [textContent, setTextContent] = useState<Record<number, string>>({});
 
   // Sincronizar el estado local con los datos del servidor cuando cambien
   useEffect(() => {
     if (serverProgram) {
       setProgram(serverProgram as Program);
+      // Cargar content_text existente para anexos de texto
+      const textMap: Record<number, string> = {};
+      (serverProgram as Program).annexes.forEach(annex => {
+        if (annex.content_type === 'text' && annex.content_text) {
+          textMap[annex.id] = annex.content_text;
+        }
+      });
+      setTextContent(textMap);
     }
   }, [serverProgram]);
 
@@ -54,7 +65,9 @@ export default function ProgramView() {
     const annexesForProgress = program.annexes.filter(a => a.type !== 'FORMATO');
     const total = annexesForProgress.length;
     if (!total) return 0;
-    const completed = annexesForProgress.filter(a => a.files.length > 0).length;
+    const completed = annexesForProgress.filter(a => 
+      a.content_type === 'text' ? !!a.content_text : a.files.length > 0
+    ).length;
     return Math.round((completed / total) * 100);
   }, [program]);
   const handleAddPoe = () => setProgram(prev => ({ ...prev, poes: [{ id: Date.now(), date: new Date().toLocaleDateString('es-CO') }, ...prev.poes] }));
@@ -123,6 +136,62 @@ export default function ProgramView() {
     } catch (error) {
       console.error('Error uploading annex files:', error);
       alert(error instanceof Error ? error.message : 'Error al subir los archivos');
+    }
+  };
+
+  const handleTextSubmit = async (annexId: number) => {
+    const text = textContent[annexId] || '';
+    
+    if (!text.trim()) {
+      alert('Por favor ingresa algún contenido de texto.');
+      return;
+    }
+
+    // Get company ID from props
+    const serverCompany = (props as any).company as any | undefined;
+    if (!serverCompany || !serverCompany.id) {
+      alert('No se pudo identificar la empresa. Por favor, recarga la página.');
+      return;
+    }
+
+    // Get CSRF token
+    const csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
+    if (!csrfTokenMeta) {
+      alert('Token CSRF no encontrado. Por favor, recarga la página.');
+      return;
+    }
+    const csrfToken = (csrfTokenMeta as HTMLMetaElement).content;
+
+    try {
+      const response = await fetch(`/programa/${program.id}/annex/${annexId}/upload`, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-TOKEN': csrfToken,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          company_id: serverCompany.id,
+          content_text: text,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Error al guardar el texto' }));
+        throw new Error(errorData.message || 'Error al guardar el texto');
+      }
+
+      // Recargar la página para obtener los datos actualizados del servidor
+      router.reload({
+        only: ['program'],
+        onSuccess: () => {
+          setUploadOpenFor(null);
+        }
+      });
+
+    } catch (error) {
+      console.error('Error saving text content:', error);
+      alert(error instanceof Error ? error.message : 'Error al guardar el texto');
     }
   };
   
@@ -228,7 +297,9 @@ export default function ProgramView() {
   const openViewPoe = (poe: Poe) => setViewOpenFor({ kind: 'POE', id: poe.id });
   const currentAnnex = program.annexes.find(a => a.id === viewOpenFor.id);
   const totalAnnex = program.annexes.filter(a => a.type !== 'FORMATO').length;
-  const completedAnnex = program.annexes.filter(a => a.type !== 'FORMATO' && a.files.length > 0).length;
+  const completedAnnex = program.annexes.filter(a => 
+    a.type !== 'FORMATO' && (a.content_type === 'text' ? !!a.content_text : a.files.length > 0)
+  ).length;
 
     const handleGeneratePdf = async () => {
         setIsGenerating(true);
@@ -330,6 +401,18 @@ export default function ProgramView() {
     }
   }
 
+  const getTextPreview = (html: string, maxLength: number = 100): string => {
+    // Eliminar etiquetas HTML
+    const text = html.replace(/<[^>]*>/g, '');
+    // Eliminar espacios múltiples y saltos de línea
+    const cleaned = text.replace(/\s+/g, ' ').trim();
+    // Truncar si es muy largo
+    if (cleaned.length > maxLength) {
+      return cleaned.substring(0, maxLength) + '...';
+    }
+    return cleaned;
+  }
+
   return (
     <AppLayout>
       <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
@@ -391,44 +474,76 @@ export default function ProgramView() {
                 <CardContent className="space-y-4 max-h-[420px] overflow-y-auto">
                     {program.annexes.map(annex => {
                         const Icon = typeIcon[annex.type];
-                        const isCompleted = annex.files.length > 0;
-                        const fileLabel = annex.type === 'IMAGES' ? `${annex.files.length} imagen(es)` : annex.files[0]?.name || 'Sin archivo';
+                        const isCompleted = annex.content_type === 'text' ? !!annex.content_text : annex.files.length > 0;
+                        const fileLabel = annex.content_type === 'text' 
+                            ? (annex.content_text ? 'Texto proporcionado' : 'Sin texto')
+                            : (annex.type === 'IMAGES' ? `${annex.files.length} imagen(es)` : annex.files[0]?.name || 'Sin archivo');
+                        const textPreview = annex.content_type === 'text' && annex.content_text 
+                            ? getTextPreview(annex.content_text, 80) 
+                            : null;
                         return (
                             <Card key={annex.id} className="border-muted/60">
-                                <CardContent className="p-4 flex items-center justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <div className="flex items-center gap-2">
-                                            <Icon className="h-4 w-4 text-muted-foreground" />
-                                            <p className="font-semibold truncate" title={annex.name}>{annex.name}</p>
-                                            <Badge variant="outline" className="text-[11px]">{typeLabel[annex.type]}</Badge>
+                                <CardContent className="p-4">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <Icon className="h-4 w-4 text-muted-foreground" />
+                        <p className="font-semibold truncate" title={annex.name}>{annex.name}</p>
+                        {annex.content_type === 'text' ? (
+                          <Badge variant="secondary" className="text-[11px]">Texto</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[11px]">Imagen</Badge>
+                        )}
+                      </div>
+                                            <div className={`mt-1 flex items-center gap-2 text-sm ${isCompleted ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                {isCompleted ? <FileCheck2 className="h-4 w-4"/> : <XCircle className="h-4 w-4"/>}
+                                                <span className="truncate" title={fileLabel}>{fileLabel}</span>
+                                            </div>
+                                            {textPreview && (
+                                                <div className="mt-2 text-xs text-muted-foreground italic border-l-2 border-muted pl-2">
+                                                    {textPreview}
+                                                </div>
+                                            )}
                                         </div>
-                                        <div className={`mt-1 flex items-center gap-2 text-sm ${isCompleted ? 'text-emerald-600' : 'text-red-600'}`}>
-                                            {isCompleted ? <FileCheck2 className="h-4 w-4"/> : <XCircle className="h-4 w-4"/>}
-                                            <span className="truncate" title={fileLabel}>{fileLabel}</span>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Button variant="outline" size="sm" onClick={() => openViewAnnex(annex)} disabled={annex.type !== 'FORMATO' && annex.files.length === 0}>
+                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                        <Button 
+                                            variant="outline" 
+                                            size="sm" 
+                                            onClick={() => openViewAnnex(annex)} 
+                                            disabled={!isCompleted}
+                                        >
                                             <Eye className="h-4 w-4 mr-2"/>Ver
                                         </Button>
-                                        {annex.type !== 'FORMATO' && (
-                                            <Dialog open={uploadOpenFor === annex.id} onOpenChange={(o) => setUploadOpenFor(o ? annex.id : null)}>
-                                                <DialogTrigger asChild>
-                                                    <Button variant="default" size="sm"><Upload className="h-4 w-4 mr-2"/>Subir</Button>
-                                                </DialogTrigger>
-                                                <DialogContent>
-                                                    <DialogHeader>
-                                                        <DialogTitle>Subir anexo: {annex.name}</DialogTitle>
-                                                    </DialogHeader>
+                                        <Dialog open={uploadOpenFor === annex.id} onOpenChange={(o) => setUploadOpenFor(o ? annex.id : null)}>
+                                            <DialogTrigger asChild>
+                                                <Button variant="default" size="sm"><Upload className="h-4 w-4 mr-2"/>Subir</Button>
+                                            </DialogTrigger>
+                                            <DialogContent>
+                                                <DialogHeader>
+                                                    <DialogTitle>Subir anexo: {annex.name}</DialogTitle>
+                                                </DialogHeader>
+                                                {annex.content_type === 'text' ? (
+                                                    <div className="space-y-4">
+                                                        <RichTextEditor
+                                                            content={textContent[annex.id] || ''}
+                                                            onChange={(content) => setTextContent(prev => ({ ...prev, [annex.id]: content }))}
+                                                            placeholder={`Ingresa el contenido para ${annex.name}...`}
+                                                        />
+                                                        <Button onClick={() => handleTextSubmit(annex.id)} className="w-full">
+                                                            Guardar Texto
+                                                        </Button>
+                                                    </div>
+                                                ) : (
                                                     <Input type="file" accept={typeAccept[annex.type]} multiple={annex.type==='IMAGES'} onChange={(e) => handleAnnexUpload(annex.id, e)} />
-                                                </DialogContent>
-                                            </Dialog>
-                                        )}
-                                        {annex.files.length > 0 && (
-                                            <Button variant="ghost" size="icon" onClick={() => clearAnnexFiles(annex.id)} title="Quitar archivos">
+                                                )}
+                                            </DialogContent>
+                                        </Dialog>
+                                        {(annex.files.length > 0 || (annex.content_type === 'text' && annex.content_text)) && (
+                                            <Button variant="ghost" size="icon" onClick={() => clearAnnexFiles(annex.id)} title="Quitar contenido">
                                                 <Trash2 className="h-4 w-4"/>
                                             </Button>
                                         )}
+                                        </div>
                                     </div>
                                 </CardContent>
                             </Card>
@@ -448,6 +563,23 @@ export default function ProgramView() {
               {viewOpenFor.kind === 'ANNEX' && currentAnnex && `${currentAnnex.name}`}
             </DialogTitle>
           </DialogHeader>
+          {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.content_type === 'text' && currentAnnex.content_text && (
+            <div className="p-6 border rounded-lg bg-white dark:bg-gray-900">
+              <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground border-b pb-2">
+                <FileText className="h-4 w-4" />
+                <span>Contenido de texto</span>
+              </div>
+              <div 
+                className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-p:leading-relaxed prose-a:text-primary prose-strong:text-foreground prose-ul:list-disc prose-ol:list-decimal" 
+                dangerouslySetInnerHTML={{ __html: currentAnnex.content_text }}
+              />
+            </div>
+          )}
+          {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.content_type === 'text' && !currentAnnex.content_text && (
+            <div className="p-6 border rounded-lg bg-muted/30 text-center">
+              <p className="text-muted-foreground">No hay contenido de texto para este anexo.</p>
+            </div>
+          )}
           {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.type === 'IMAGES' && currentAnnex.files.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {currentAnnex.files.map((f: any, i) => (

@@ -70,39 +70,115 @@ class ProgramController extends Controller
         ]);
     }
 
+    /**
+     * Convert HTML content to plain text with basic formatting
+     */
+    private function convertHtmlToText($html)
+    {
+        if (empty($html)) {
+            return '';
+        }
+
+        // Usar Html2Text para convertir HTML a texto plano con formato
+        $htmlConverter = new \Html2Text\Html2Text($html);
+        $text = $htmlConverter->getText();
+        
+        return $text;
+    }
+
     public function uploadAnnex(Request $request, $programId, $annexId)
     {
-        $validated = $request->validate([
-            'company_id' => 'required|exists:companies,id',
-            'file' => 'required|file|max:10240', // 10MB max
-        ]);
-
-        try {
-            $file = $request->file('file');
-            $submission = $this->saveAnnexFile(
-                $file,
-                $validated['company_id'],
-                $programId,
-                $annexId
-            );
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Archivo subido exitosamente',
-                'submission' => [
-                    'id' => $submission->id,
-                    'name' => $submission->file_name,
-                    // Usar ruta interna /public-storage para evitar 403 con symlink en dev/Windows
-                    'url' => url('public-storage/' . ltrim($submission->file_path, '/')),
-                    'mime' => $submission->mime_type,
-                ],
+        // Verificar el tipo de anexo
+        $annex = Annex::findOrFail($annexId);
+        
+        if ($annex->content_type === 'text') {
+            // Validar para anexos de texto
+            $validated = $request->validate([
+                'company_id' => 'required|exists:companies,id',
+                'content_text' => 'required|string|max:65535', // Text content
             ]);
-        } catch (\Exception $e) {
-            Log::error('Error uploading annex file: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al subir el archivo: ' . $e->getMessage(),
-            ], 500);
+
+            try {
+                // Buscar si ya existe una submission para este anexo
+                $submission = CompanyAnnexSubmission::where([
+                    'company_id' => $validated['company_id'],
+                    'program_id' => $programId,
+                    'annex_id' => $annexId,
+                ])->first();
+
+                if ($submission) {
+                    // Actualizar el contenido existente
+                    $submission->update([
+                        'content_text' => $validated['content_text'],
+                        'status' => 'Pendiente',
+                        'submitted_by' => Auth::id(),
+                    ]);
+                } else {
+                    // Crear nueva submission
+                    $submission = CompanyAnnexSubmission::create([
+                        'company_id' => $validated['company_id'],
+                        'program_id' => $programId,
+                        'annex_id' => $annexId,
+                        'content_text' => $validated['content_text'],
+                        'file_path' => null,
+                        'file_name' => null,
+                        'mime_type' => 'text/plain',
+                        'file_size' => strlen($validated['content_text']),
+                        'status' => 'Pendiente',
+                        'submitted_by' => Auth::id(),
+                    ]);
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Texto guardado exitosamente',
+                    'submission' => [
+                        'id' => $submission->id,
+                        'content_text' => $submission->content_text,
+                        'mime' => 'text/plain',
+                    ],
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error saving text annex: ' . $e->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al guardar el texto: ' . $e->getMessage(),
+                ], 500);
+            }
+        } else {
+            // Validar para anexos de archivo/imagen
+            $validated = $request->validate([
+                'company_id' => 'required|exists:companies,id',
+                'file' => 'required|file|max:10240', // 10MB max
+            ]);
+
+            try {
+                $file = $request->file('file');
+                $submission = $this->saveAnnexFile(
+                    $file,
+                    $validated['company_id'],
+                    $programId,
+                    $annexId
+                );
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Archivo subido exitosamente',
+                    'submission' => [
+                        'id' => $submission->id,
+                        'name' => $submission->file_name,
+                        // Usar ruta interna /public-storage para evitar 403 con symlink en dev/Windows
+                        'url' => url('public-storage/' . ltrim($submission->file_path, '/')),
+                        'mime' => $submission->mime_type,
+                    ],
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error uploading annex file: ' . $e->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al subir el archivo: ' . $e->getMessage(),
+                ], 500);
+            }
         }
     }
 
@@ -119,10 +195,11 @@ class ProgramController extends Controller
                 ->where('annex_id', $annexId)
                 ->get();
 
-            // Eliminar los archivos físicos del storage
+            // Eliminar los archivos físicos del storage (solo si hay file_path)
             foreach ($submissions as $submission) {
                 try {
-                    if (Storage::disk('public')->exists($submission->file_path)) {
+                    // Solo intentar eliminar si hay un file_path (anexos de imagen/archivo)
+                    if ($submission->file_path && Storage::disk('public')->exists($submission->file_path)) {
                         Storage::disk('public')->delete($submission->file_path);
                     }
                 } catch (\Exception $e) {
@@ -170,9 +247,9 @@ class ProgramController extends Controller
                 ], 404);
             }
 
-            // Eliminar el archivo físico del storage
+            // Eliminar el archivo físico del storage (solo si hay file_path)
             try {
-                if (Storage::disk('public')->exists($submission->file_path)) {
+                if ($submission->file_path && Storage::disk('public')->exists($submission->file_path)) {
                     Storage::disk('public')->delete($submission->file_path);
                 }
             } catch (\Exception $e) {
@@ -402,7 +479,27 @@ class ProgramController extends Controller
                 // TODO: Implementar soporte para múltiples imágenes por anexo usando cloneBlock
                 $submission = $submissions->first();
                 
-                if (str_starts_with($submission->mime_type, 'image/')) {
+                $annexInfo = Annex::find($annexId);
+                $placeholder = $derivePlaceholder($annexInfo);
+                
+                if (!$placeholder) {
+                    continue; // Skip if no placeholder defined
+                }
+
+                // Verificar el content_type del anexo
+                if ($annexInfo && $annexInfo->content_type === 'text') {
+                    // Para anexos de tipo texto, buscar el texto en content_text de la submission
+                    $htmlContent = $submission->content_text ?? '(Texto no proporcionado)';
+                    
+                    // Convertir HTML a texto plano para el documento
+                    $textContent = $this->convertHtmlToText($htmlContent);
+                    
+                    $templateProcessor->setValue($placeholder, $textContent);
+                    $placeholdersWithImage[$placeholder] = true;
+                    
+                    Log::info("Anexo de texto insertado en documento: {$annexInfo->nombre}");
+                } elseif (str_starts_with($submission->mime_type, 'image/')) {
+                    // Para anexos de tipo imagen, procesar como antes
                     try {
                         $imagePath = Storage::disk('public')->path($submission->file_path);
                     } catch (\Throwable $ex) {
@@ -415,20 +512,15 @@ class ProgramController extends Controller
                     }
                     
                     $tempImagePaths[] = $imagePath;
-
-                    $annexInfo = Annex::find($annexId);
-                    $placeholder = $derivePlaceholder($annexInfo);
                     
-                    if ($placeholder) {
-                        $templateProcessor->setImageValue($placeholder, [
-                            'path' => $imagePath,
-                            'width' => 500,
-                            'ratio' => true
-                        ]);
-                        $placeholdersWithImage[$placeholder] = true;
-                        
-                        Log::info("Anexo insertado en documento: {$annexInfo->nombre} ({$submissions->count()} archivo(s) en BD, usando el primero)");
-                    }
+                    $templateProcessor->setImageValue($placeholder, [
+                        'path' => $imagePath,
+                        'width' => 500,
+                        'ratio' => true
+                    ]);
+                    $placeholdersWithImage[$placeholder] = true;
+                    
+                    Log::info("Anexo de imagen insertado en documento: {$annexInfo->nombre} ({$submissions->count()} archivo(s) en BD, usando el primero)");
                 }
             }
 
@@ -493,6 +585,8 @@ class ProgramController extends Controller
         $annexIds = DB::table('program_annexes')->where('program_id', $program->id)->pluck('annex_id')->toArray();
         $annexes = Annex::whereIn('id', $annexIds)->get()->map(function ($a) use ($companyId, $program) {
             $files = [];
+            $contentText = null;
+            
             if ($companyId) {
                 $subs = CompanyAnnexSubmission::where('company_id', $companyId)
                     ->where('program_id', $program->id)
@@ -501,43 +595,52 @@ class ProgramController extends Controller
                     ->get();
 
                 foreach ($subs as $s) {
-                    // Evitar listar archivos con ruta inexistente (p.ej. subidas antiguas)
-                    try {
-                        $exists = Storage::disk('public')->exists($s->file_path);
-                    } catch (\Throwable $t) {
-                        $exists = file_exists(storage_path('app/public/' . ltrim($s->file_path, '/')));
+                    // Si es un anexo de texto, obtener el contenido
+                    if ($a->content_type === 'text') {
+                        $contentText = $s->content_text;
+                        continue; // No procesar como archivo
                     }
-                    if (!$exists) {
-                        Log::warning("Archivo faltante en BD, omitido en vista: {$s->file_path} (submission {$s->id})");
-                        continue;
+                    
+                    // Para anexos de archivo/imagen, verificar que exista el archivo
+                    if ($s->file_path) {
+                        try {
+                            $exists = Storage::disk('public')->exists($s->file_path);
+                        } catch (\Throwable $t) {
+                            $exists = file_exists(storage_path('app/public/' . ltrim($s->file_path, '/')));
+                        }
+                        if (!$exists) {
+                            Log::warning("Archivo faltante en BD, omitido en vista: {$s->file_path} (submission {$s->id})");
+                            continue;
+                        }
+                        $files[] = [
+                            'id' => $s->id,
+                            'name' => $s->file_name,
+                            // Usar ruta interna /public-storage para evitar 403 con symlink en dev/Windows
+                            'url' => url('public-storage/' . ltrim($s->file_path, '/')),
+                            'mime' => $s->mime_type,
+                        ];
                     }
-                    $files[] = [
-                        'id' => $s->id,
-                        'name' => $s->file_name,
-                        // Usar ruta interna /public-storage para evitar 403 con symlink en dev/Windows
-                        'url' => url('public-storage/' . ltrim($s->file_path, '/')),
-                        'mime' => $s->mime_type,
-                    ];
                 }
             }
 
             // Mapear tipo a la nomenclatura del frontend
-            // Para el programa 1 forzamos que todos los anexos sean imágenes (modo prueba)
-            if ($program->id === 1) {
+            // El 'type' determina qué tipo de archivo aceptar
+            // El 'content_type' determina si es imagen/archivo o texto
+            // Por defecto, todos los anexos aceptan imágenes, a menos que sean de tipo texto
+            if ($a->content_type === 'text') {
+                // Para anexos de texto, usar IMAGES como tipo por defecto (el frontend decidirá mostrar editor)
                 $type = 'IMAGES';
             } else {
-                $type = match ($a->tipo) {
-                    'ISO 22000' => 'PDF',
-                    'PSB' => 'XLSX',
-                    'Invima' => 'FORMATO',
-                    default => 'PDF'
-                };
+                // Para anexos de imagen/archivo, siempre usar IMAGES
+                $type = 'IMAGES';
             }
 
             return [
                 'id' => $a->id,
                 'name' => $a->nombre,
                 'type' => $type,
+                'content_type' => $a->content_type ?? 'image', // Incluir content_type (image/text)
+                'content_text' => $contentText, // Incluir texto si existe
                 'files' => $files,
             ];
         })->toArray();

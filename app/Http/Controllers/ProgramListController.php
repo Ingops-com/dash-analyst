@@ -64,6 +64,7 @@ class ProgramListController extends Controller
             // Enforce enum values to match DB schema and avoid truncation
             'tipo' => 'required|in:ISO 22000,PSB,Invima',
             'placeholder' => 'nullable|string|max:255',
+            'content_type' => 'required|in:image,text',
             'programIds' => 'required|array|min:1',
             'programIds.*' => 'exists:programs,id',
         ]);
@@ -73,6 +74,7 @@ class ProgramListController extends Controller
             'nombre' => $validated['nombre'],
             'codigo_anexo' => $validated['codigo_anexo'],
             'placeholder' => $validated['placeholder'] ?? null,
+            'content_type' => $validated['content_type'],
             'tipo' => $validated['tipo'],
             // Valid enum values: 'En revisión', 'Aprobado', 'Obsoleto'
             'status' => 'En revisión',
@@ -100,6 +102,7 @@ class ProgramListController extends Controller
             'codigo_anexo' => 'required|string|max:255|unique:annexes,codigo_anexo,' . $id,
             'tipo' => 'required|in:ISO 22000,PSB,Invima',
             'placeholder' => 'nullable|string|max:255',
+            'content_type' => 'required|in:image,text',
             'programIds' => 'required|array|min:1',
             'programIds.*' => 'exists:programs,id',
         ]);
@@ -109,6 +112,7 @@ class ProgramListController extends Controller
             'nombre' => $validated['nombre'],
             'codigo_anexo' => $validated['codigo_anexo'],
             'placeholder' => $validated['placeholder'] ?? null,
+            'content_type' => $validated['content_type'],
             'tipo' => $validated['tipo'],
         ]);
 
