@@ -39,7 +39,7 @@ Route::middleware(['auth'])->group(function () {
     })->where('path', '.*')->name('public.storage');
     
     // Admin routes
-    Route::middleware(['role:admin'])->group(function () {
+    Route::middleware(['role:admin,super-admin'])->group(function () {
         Route::get('/lista-usuarios', [UserController::class, 'index'])->name('users.list');
         Route::put('/users/{id}/companies', [UserController::class, 'updateCompanies'])->name('users.companies.update');
         Route::get('/listado-maestro', [MasterListController::class, 'index'])->name('master.list');
