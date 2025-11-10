@@ -1,20 +1,38 @@
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
-import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
+import {
+    Sidebar,
+    SidebarContent,
+    SidebarFooter,
+    SidebarHeader,
+    SidebarMenu,
+    SidebarMenuButton,
+    SidebarMenuItem,
+} from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { LayoutGrid, Building2, List, Users, FileText, Settings as SettingsIcon, BookOpen } from 'lucide-react';
+import {
+    LayoutGrid,
+    Building2,
+    List,
+    Users,
+    FileText,
+    Settings as SettingsIcon,
+    BookOpen,
+} from 'lucide-react';
 import AppLogo from './app-logo';
 
 export function AppSidebar() {
     const { auth } = usePage().props as any;
     const user = (auth?.user || {}) as { rol?: string };
-    // Evitar spam en consola y corregir rol
-    const isAdmin = user.rol === 'administrador' || user.rol === 'admin';
 
-    // Navegación base para todos
+    const role = String(user.rol || '').toLowerCase();
+    const isadmin = role === 'admin';
+    const isAnalyst = role === 'analista';
+    const isSuperadmin = role === 'super-admin';
+
     const mainNavItems: NavItem[] = [
         {
             title: 'Dashboard',
@@ -22,20 +40,29 @@ export function AppSidebar() {
             icon: LayoutGrid,
         },
         {
-            title: 'Empresas',
-            href: '/lista-empresas',
-            icon: Building2,
-        },
-        {
-            title: 'Programas',
-            href: '/programas',
-            icon: BookOpen,
+            title: 'Configuración',
+            href: '/settings/profile',
+            icon: SettingsIcon,
         },
     ];
 
-    // Si es admin, agregar vistas avanzadas
-    if (isAdmin) {
+    if (isAnalyst || isadmin || isSuperadmin) {
         mainNavItems.push(
+            {
+                title: 'Empresas',
+                href: '/lista-empresas',
+                icon: Building2,
+            }
+        );
+    }
+
+    if (isadmin || isSuperadmin) {
+        mainNavItems.push(
+            {
+                title: 'Programas',
+                href: '/programas',
+                icon: BookOpen,
+            },
             {
                 title: 'Listado Maestro',
                 href: '/listado-maestro',
@@ -50,12 +77,7 @@ export function AppSidebar() {
                 title: 'Documentos de Empresas',
                 href: '/documentos-empresas',
                 icon: FileText,
-            },
-            {
-                title: 'Configuración',
-                href: '/settings/profile',
-                icon: SettingsIcon,
-            },
+            }
         );
     }
 

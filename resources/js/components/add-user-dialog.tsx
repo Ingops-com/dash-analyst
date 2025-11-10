@@ -21,19 +21,17 @@ import { Separator } from './ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 
 
-// Company mock removed — production should provide this data via server props
-const allCompanies: any[] = []
+// Companies will be provided from server via props
 
 const defaultFormState = {
     nombre: '',
-    username: '',
     password: '',
     correo: '',
-    rol: 'Analista',
+    rol: 'analista',
     empresasAsociadas: [],
 };
 
-export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit }) {
+export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit, companies = [] }) {
     const [formData, setFormData] = useState(defaultFormState);
     const [companySearch, setCompanySearch] = useState('');
 
@@ -41,9 +39,8 @@ export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit }) {
         if (userToEdit) {
             setFormData({
                 nombre: userToEdit.nombre || '',
-                username: userToEdit.username || '',
                 correo: userToEdit.correo || '',
-                rol: userToEdit.rol || 'Analista',
+                rol: userToEdit.rol || 'analista',
                 empresasAsociadas: userToEdit.empresasAsociadas || [],
                 password: '', // Password should be empty for editing
             });
@@ -66,15 +63,22 @@ export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit }) {
     };
 
     const toggleEmpresa = (empresaId) => {
-        const newEmpresas = formData.empresasAsociadas.includes(empresaId)
-            ? formData.empresasAsociadas.filter(id => id !== empresaId)
-            : [...formData.empresasAsociadas, empresaId];
+        const isUserRole = String(formData.rol).toLowerCase() === 'usuario';
+        let newEmpresas = [] as any[];
+        if (isUserRole) {
+            // Solo una empresa para 'usuario'
+            newEmpresas = formData.empresasAsociadas.includes(empresaId) ? [] : [empresaId];
+        } else {
+            newEmpresas = formData.empresasAsociadas.includes(empresaId)
+                ? formData.empresasAsociadas.filter(id => id !== empresaId)
+                : [...formData.empresasAsociadas, empresaId];
+        }
         setFormData(prev => ({ ...prev, empresasAsociadas: newEmpresas }));
     };
 
-    const filteredCompanies = allCompanies.filter(c =>
+    const filteredCompanies = companies.filter((c: any) =>
         c.nombre.toLowerCase().includes(companySearch.toLowerCase()) ||
-        c.nit.toLowerCase().includes(companySearch.toLowerCase())
+        (c.nit ?? '').toLowerCase().includes(companySearch.toLowerCase())
     );
 
     return (
@@ -93,10 +97,6 @@ export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit }) {
                         <Input id="nombre" value={formData.nombre} onChange={handleChange} className="col-span-3" />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="username" className="text-right">Usuario</Label>
-                        <Input id="username" value={formData.username} onChange={handleChange} className="col-span-3" />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="password" className="text-right">Contraseña</Label>
                         <Input id="password" type="password" value={formData.password} onChange={handleChange} className="col-span-3" placeholder={userToEdit ? 'Dejar en blanco para no cambiar' : ''} />
                     </div>
@@ -109,15 +109,16 @@ export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit }) {
                         <Select onValueChange={handleSelectChange} value={formData.rol}>
                             <SelectTrigger className="col-span-3"><SelectValue /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="Usuario">Usuario</SelectItem>
-                                <SelectItem value="Analista">Analista</SelectItem>
+                                <SelectItem value="usuario">Usuario</SelectItem>
+                                <SelectItem value="analista">Analista</SelectItem>
+                                <SelectItem value="admin">Admin</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
                 </div>
 
-                {/* Conditional Section for "Analista" role */}
-                {formData.rol === 'Analista' && (
+                {/* Asignar empresas: visible para todos excepto super-admin */}
+                {String(formData.rol).toLowerCase() !== 'super-admin' && (
                     <>
                         <Separator />
                         <div className="space-y-4 pt-4">

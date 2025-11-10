@@ -55,6 +55,24 @@ class CompanyController extends Controller
             ];
         })->toArray();
 
+        // Marcar empresas asignadas al usuario y filtrar si no es admin
+        $user = $request->user();
+        $role = strtolower((string)($user->rol ?? ''));
+        $isadmin = in_array($role, ['super-admin']);
+        $assignedCompanyIds = DB::table('company_user')
+            ->where('user_id', $user->id)
+            ->pluck('company_id')
+            ->toArray();
+
+        foreach ($companies as &$co) {
+            $co['assigned'] = in_array($co['id'], $assignedCompanyIds);
+        }
+        unset($co);
+
+        if (! $isadmin) {
+            $companies = array_values(array_filter($companies, fn ($co) => $co['assigned']));
+        }
+
         // Para cada empresa obtener programas asignados y calcular progreso
         foreach ($companies as &$company) {
             $companyId = $company['id'];

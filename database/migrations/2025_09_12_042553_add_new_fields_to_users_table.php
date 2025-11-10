@@ -12,8 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->string('username')->unique()->after('name');
-            $table->enum('rol', ['administrador', 'analista'])->default('analista')->after('username');
+            $table->enum('rol', ['administrador', 'analista'])->default('analista');
             $table->string('nir_empresa')->nullable()->after('email');
             $table->boolean('habilitado')->default(true)->after('remember_token');
         });

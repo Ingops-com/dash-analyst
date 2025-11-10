@@ -7,23 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AuthLayout from '@/layouts/auth-layout';
 import { register } from '@/routes';
-import { request } from '@/routes/password';
 import { Form, Head } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 
 interface LoginProps {
     status?: string;
-    canResetPassword: boolean;
-}
+    }
 
-export default function Login({ status, canResetPassword }: LoginProps) {
+export default function Login({ status }: LoginProps) {
     return (
         <AuthLayout title="Inicia sesión en tu cuenta" description="Ingresa tu correo electrónico y contraseña para iniciar sesión">
             <Head title="Iniciar sesión" />
@@ -50,11 +41,6 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                             <div className="grid gap-2">
                                 <div className="flex items-center">
                                     <Label htmlFor="password">Contraseña</Label>
-                                    {canResetPassword && (
-                                        <TextLink href={request()} className="ml-auto text-sm" tabIndex={5}>
-                                            ¿Olvidaste tu contraseña?
-                                        </TextLink>
-                                    )}
                                 </div>
                                 <Input
                                     id="password"
@@ -67,21 +53,6 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                                 />
                                 <InputError message={errors.password} />
                             </div>
-
-                            <div className="grid gap-2">
-                                <Label htmlFor="role">Rol</Label>
-                                <Select name="role">
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Selecciona un rol" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="admin">Administrador</SelectItem>
-                                        <SelectItem value="analyst">Analista</SelectItem>
-                                        <SelectItem value="user">Usuario</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
 
                             <div className="flex items-center space-x-3">
                                 <Checkbox id="remember" name="remember" tabIndex={3} />

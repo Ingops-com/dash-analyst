@@ -13,6 +13,7 @@ import { Head } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AddUserDialog } from '@/components/add-user-dialog';
+import { router, usePage } from '@inertiajs/react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -22,21 +23,19 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 // Dummy users removed — production should provide users via server props
-const initialUsers: any[] = []
 
-export default function UsersList() {
-    const [users, setUsers] = useState(initialUsers);
+
+export default function UsersList({ users: serverUsers = [], companies = [], canCreate = false }: { users: any[]; companies: any[]; canCreate?: boolean }) {
+    const [users, setUsers] = useState(serverUsers);
     const [nameFilter, setNameFilter] = useState('');
     const [emailFilter, setEmailFilter] = useState('');
-    const [nitFilter, setNitFilter] = useState('');
     const [isAddUserOpen, setIsAddUserOpen] = useState(false);
     const [editingUser, setEditingUser] = useState(null);
 
     const filteredUsers = users.filter(
         (user) =>
             user.nombre.toLowerCase().includes(nameFilter.toLowerCase()) &&
-            user.correo.toLowerCase().includes(emailFilter.toLowerCase()) &&
-            user.nir_empresa.toLowerCase().includes(nitFilter.toLowerCase())
+            user.correo.toLowerCase().includes(emailFilter.toLowerCase()) 
     );
 
     const handleOpenCreate = () => {
@@ -55,15 +54,54 @@ export default function UsersList() {
     };
 
     const handleSaveUser = (userData) => {
+        const payload = {
+            name: userData.nombre,
+            email: userData.correo,
+            rol: String(userData.rol).toLowerCase(),
+            company_ids: userData.empresasAsociadas,
+        } as any;
+
         if (editingUser) {
-            // Logic to update user
-            setUsers(users.map((u) => (u.id === editingUser.id ? { ...u, ...userData } : u)));
-        } else {
-            // Logic to add new user
-            setUsers([...users, { ...userData, id: users.length + 1, habilitado: true }]);
+            router.put(`/users/${editingUser.id}`, payload, {
+                onSuccess: () => {
+                    setUsers(users.map((u) => (u.id === editingUser.id ? { ...u, ...userData } : u)));
+                    handleCloseDialog();
+                },
+                onError: (errors) => {
+                    const msg = typeof errors === 'object' ? JSON.stringify(errors) : String(errors);
+                    alert('Error al actualizar usuario: ' + msg);
+                },
+            });
+            return;
         }
-        handleCloseDialog();
+        // Crear: requiere password
+        const password = userData.password || '';
+        router.post(`/users`, { ...payload, password }, {
+            onSuccess: () => {
+                // Recargar o confiar en respuesta; aquí actualizamos localmente
+                setUsers([...users, { ...userData, id: users.length + 1, habilitado: true }]);
+                handleCloseDialog();
+            },
+            onError: (errors) => {
+                const msg = typeof errors === 'object' ? JSON.stringify(errors) : String(errors);
+                alert('Error al crear usuario: ' + msg);
+            },
+        });
     };
+
+    const toggleUserStatus = (user) => {
+        const next = !user.habilitado;
+        router.put(`/users/${user.id}/status`, { habilitado: next }, {
+            onSuccess: () => {
+                setUsers(users.map(u => u.id === user.id ? { ...u, habilitado: next } : u));
+            },
+        });
+    };
+
+    const page = usePage();
+    const me = ((page as any).props?.auth?.user ?? {}) as any;
+    const myRole = String(me?.rol ?? '').toLowerCase();
+    const canCreateUser = canCreate;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -73,6 +111,7 @@ export default function UsersList() {
                 onClose={handleCloseDialog}
                 onSaveUser={handleSaveUser}
                 userToEdit={editingUser}
+                companies={companies}
             />
             <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
                 <div className="flex justify-between items-center mb-4">
@@ -89,14 +128,10 @@ export default function UsersList() {
                             value={emailFilter}
                             onChange={(e) => setEmailFilter(e.target.value)}
                         />
-                        <Input
-                            placeholder="Filtrar por NIT empresa..."
-                            className="max-w-sm"
-                            value={nitFilter}
-                            onChange={(e) => setNitFilter(e.target.value)}
-                        />
                     </div>
-                    <Button onClick={handleOpenCreate}>Agregar Nuevo Usuario</Button>
+                    {canCreateUser && (
+                        <Button onClick={handleOpenCreate}>Agregar Nuevo Usuario</Button>
+                    )}
                 </div>
                 <div className="relative flex-1 overflow-hidden rounded-xl border border-sidebar-border/70 md:min-h-min dark:border-sidebar-border">
                     <Table>
@@ -104,10 +139,8 @@ export default function UsersList() {
                             <TableRow>
                                 <TableHead>ID</TableHead>
                                 <TableHead>Nombre</TableHead>
-                                <TableHead>Username</TableHead>
                                 <TableHead>Rol</TableHead>
                                 <TableHead>Correo</TableHead>
-                                <TableHead>NIR Empresa</TableHead>
                                 <TableHead>Acciones</TableHead>
                             </TableRow>
                         </TableHeader>
@@ -116,17 +149,24 @@ export default function UsersList() {
                                 <TableRow key={user.id}>
                                     <TableCell>{user.id}</TableCell>
                                     <TableCell>{user.nombre}</TableCell>
-                                    <TableCell>{user.username}</TableCell>
                                     <TableCell>{user.rol}</TableCell>
                                     <TableCell>{user.correo}</TableCell>
-                                    <TableCell>{user.nir_empresa}</TableCell>
                                     <TableCell className="space-x-2">
-                                        <Button variant={user.habilitado ? 'secondary' : 'default'}>
+                                        <Button variant={user.habilitado ? 'secondary' : 'default'} onClick={() => toggleUserStatus(user)}>
                                             {user.habilitado ? 'Deshabilitar' : 'Habilitar'}
                                         </Button>
                                         <Button variant="outline" onClick={() => handleOpenEdit(user)}>Editar</Button>
-                                        <Button variant="destructive">Eliminar</Button>
-                                    </TableCell>
+                                        <Button variant="destructive" onClick={() => {
+                                            if (!confirm('¿Eliminar este usuario?')) return;
+                                            router.delete(`/users/${user.id}`, {
+                                                onSuccess: () => setUsers(users.filter(u => u.id !== user.id)),
+                                                onError: (errors) => {
+                                                    const msg = (errors as any)?.delete || (typeof errors === 'object' ? JSON.stringify(errors) : String(errors));
+                                                    alert('No se pudo eliminar: ' + msg);
+                                                },
+                                            });
+                                        }}>Eliminar</Button>
+                </TableCell>
                                 </TableRow>
                             ))}
                         </TableBody>

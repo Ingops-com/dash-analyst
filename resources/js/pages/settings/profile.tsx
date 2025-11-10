@@ -3,7 +3,6 @@ import { Head, Link, useForm, usePage } from '@inertiajs/react';
 import { Transition } from '@headlessui/react';
 
 import { type BreadcrumbItem, type SharedData } from '@/types';
-import { send } from '@/routes/verification';
 import { edit, update } from '@/routes/profile';
 
 import DeleteUser from '@/components/delete-user';
@@ -40,14 +39,12 @@ export default function Profile({ mustVerifyEmail, status }: ProfileProps) {
   // useForm de Inertia (no existe <Form /> en @inertiajs/react)
   const { data, setData, post, processing, errors, recentlySuccessful, clearErrors } = useForm<{
     name: string;
-    username: string;
     email: string;
     photo: File | null;
     _method?: 'PUT' | 'PATCH';
     remove_photo?: boolean;
   }>({
     name: auth.user?.name ?? '',
-    username: auth.user?.username ?? '',
     email: auth.user?.email ?? '',
     photo: null,
     _method: 'PUT', // típico para rutas tipo resource update
@@ -162,17 +159,6 @@ export default function Profile({ mustVerifyEmail, status }: ProfileProps) {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="username">Nombre de usuario</Label>
-                  <Input
-                    id="username"
-                    value={data.username}
-                    onChange={(e) => setData('username', e.target.value)}
-                    required
-                  />
-                  <InputError className="mt-1" message={errors.username} />
-                </div>
-
-                <div className="space-y-2">
                   <Label htmlFor="email">Correo Electrónico</Label>
                   <Input
                     id="email"
@@ -184,27 +170,8 @@ export default function Profile({ mustVerifyEmail, status }: ProfileProps) {
                   <InputError className="mt-1" message={errors.email} />
                 </div>
 
-                {mustVerifyEmail && auth.user?.email_verified_at === null && (
-                  <div>
-                    <p className="text-sm text-muted-foreground">
-                      Tu dirección de correo electrónico no está verificada.{' '}
-                      <Link
-                        href={send()}
-                        method="post"
-                        as="button"
-                        className="underline text-sm text-gray-600 hover:text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                      >
-                        Haz clic aquí para reenviar el correo de verificación.
-                      </Link>
-                    </p>
-
-                    {status === 'verification-link-sent' && (
-                      <div className="mt-2 font-medium text-sm text-green-600">
-                        Se ha enviado un nuevo enlace de verificación a tu dirección de correo electrónico.
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* Email verification disabled */}
+                {/* Email verification disabled */}
               </CardContent>
 
               <CardFooter className="flex items-center justify-end gap-4">
@@ -231,3 +198,4 @@ export default function Profile({ mustVerifyEmail, status }: ProfileProps) {
     </AppLayout>
   );
 }
+
