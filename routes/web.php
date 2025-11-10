@@ -13,7 +13,7 @@ use App\Http\Controllers\UserDocumentsController;
 
 Route::redirect('/', '/login');
 
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/lista-empresas', [CompanyController::class, 'index'])->name('companies');
     // Allow both PUT and POST for update to avoid method spoofing issues with FormData in some environments
