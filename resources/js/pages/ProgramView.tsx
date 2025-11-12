@@ -16,7 +16,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 // Tipos, Datos y Helpers (sin cambios)
 export type AnnexType = 'IMAGES' | 'PDF' | 'WORD' | 'XLSX' | 'FORMATO';
 interface Poe { id: number; date: string }
-interface Annex { id: number; name: string; type: AnnexType; content_type?: string; content_text?: string; files: any[] }
+interface AnnexFile { id?: number; name?: string; url?: string; mime?: string; uploaded_at?: string }
+interface Annex { id: number; name: string; code?: string; uploaded_at?: string; type: AnnexType; content_type?: string; content_text?: string; files: AnnexFile[] }
 interface Program { id: number; name: string; annexes: Annex[]; poes: Poe[] }
 const typeLabel: Record<AnnexType, string> = { IMAGES: 'Imágenes', PDF: 'PDF', WORD: 'Word', XLSX: 'Excel', FORMATO: 'Formato' };
 const typeAccept: Record<AnnexType, string> = { IMAGES: 'image/*', PDF: 'application/pdf', WORD: '.doc,.docx', XLSX: '.xls,.xlsx', FORMATO: '' };
@@ -522,6 +523,26 @@ export default function ProgramView() {
                                                 <DialogHeader>
                                                     <DialogTitle>Subir anexo: {annex.name}</DialogTitle>
                                                 </DialogHeader>
+                                                {/* Header informativo del anexo */}
+                                                <div className="mb-3 border rounded-md p-3 bg-muted/20">
+                                                  <div className="grid grid-cols-3 gap-3 items-center">
+                                                    <div className="flex items-center">
+                                                      {((props as any).company?.logo_left_url) ? (
+                                                        <img src={(props as any).company.logo_left_url as string} alt="logo" className="h-8 w-auto object-contain" />
+                                                      ) : (
+                                                        <div className="text-[11px] text-muted-foreground">Sin logo</div>
+                                                      )}
+                                                    </div>
+                                                    <div className="text-center">
+                                                      <div className="text-sm font-semibold truncate" title={annex.name}>{annex.name}</div>
+                                                    </div>
+                                                    <div className="text-right text-xs leading-5">
+                                                      <div><span className="font-medium">Versión:</span> 1</div>
+                                                      <div><span className="font-medium">Código:</span> {annex.code ?? '—'}</div>
+                                                      <div><span className="font-medium">Fecha de subida:</span> {annex.uploaded_at ?? '—'}</div>
+                                                    </div>
+                                                  </div>
+                                                </div>
                                                 {annex.content_type === 'text' ? (
                                                     <div className="space-y-4">
                                                         <RichTextEditor
@@ -563,6 +584,35 @@ export default function ProgramView() {
               {viewOpenFor.kind === 'ANNEX' && currentAnnex && `${currentAnnex.name}`}
             </DialogTitle>
           </DialogHeader>
+          {/* Header de 3 columnas para anexos */}
+          {viewOpenFor.kind === 'ANNEX' && currentAnnex && (
+            <div className="mb-4 border rounded-md p-3 bg-muted/30">
+              <div className="grid grid-cols-3 gap-3 items-center">
+                {/* Columna 1: Logo */}
+                <div className="flex items-center">
+                  {((props as any).company?.logo_left_url) ? (
+                    <img
+                      src={(props as any).company.logo_left_url as string}
+                      alt="logo"
+                      className="h-10 w-auto object-contain"
+                    />
+                  ) : (
+                    <div className="text-xs text-muted-foreground">Sin logo</div>
+                  )}
+                </div>
+                {/* Columna 2: Nombre del anexo */}
+                <div className="text-center">
+                  <div className="text-sm font-semibold">{currentAnnex.name}</div>
+                </div>
+                {/* Columna 3: Versión, Código, Fecha */}
+                <div className="text-right text-xs leading-5">
+                  <div><span className="font-medium">Versión:</span> 1</div>
+                  <div><span className="font-medium">Código:</span> {currentAnnex.code ?? '—'}</div>
+                  <div><span className="font-medium">Fecha de subida:</span> {currentAnnex.uploaded_at ?? '—'}</div>
+                </div>
+              </div>
+            </div>
+          )}
           {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.content_type === 'text' && currentAnnex.content_text && (
             <div className="p-6 border rounded-lg bg-white dark:bg-gray-900">
               <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground border-b pb-2">

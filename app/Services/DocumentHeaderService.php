@@ -114,9 +114,9 @@ class DocumentHeaderService
             'Versión ' . ($company['version'] ?? '01') . '      ' . $fecha,
             ['size' => 9, 'name' => 'Arial']
         );
-        
+
         $cellRight->addTextBreak();
-        
+
         // Código
         $textRun = $cellRight->addTextRun(['alignment' => Jc::CENTER]);
         $textRun->addText(
