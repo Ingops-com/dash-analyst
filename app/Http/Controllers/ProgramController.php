@@ -1387,12 +1387,43 @@ class ProgramController extends Controller
     public function show(Request $request, $id)
     {
         $companyId = $request->query('company_id');
+        $user = $request->user();
+        $role = strtolower((string) optional($user)->rol);
+        $isAdmin = in_array($role, ['admin', 'administrador', 'super-admin']);
+
+        if ($companyId && ! $isAdmin) {
+            $hasAccess = DB::table('company_user')
+                ->where('user_id', $user->id)
+                ->where('company_id', $companyId)
+                ->exists();
+            if (! $hasAccess) {
+                abort(403, 'No tienes acceso a esta empresa');
+            }
+        }
 
         $program = Program::findOrFail($id);
 
-        // Obtener anexos vinculados al programa
+        // Obtener anexos vinculados al programa, filtrando por configuracin de la empresa si aplica
         $annexIds = DB::table('program_annexes')->where('program_id', $program->id)->pluck('annex_id')->toArray();
-        $annexes = Annex::whereIn('id', $annexIds)->get()->map(function ($a) use ($companyId, $program) {
+        if ($companyId) {
+            $assignedAnnexIds = DB::table('company_program_config')
+                ->where('company_id', $companyId)
+                ->where('program_id', $program->id)
+                ->pluck('annex_id')
+                ->toArray();
+
+            if (count($assignedAnnexIds)) {
+                $annexIds = array_values(array_intersect($annexIds, $assignedAnnexIds));
+            } else {
+                $annexIds = [];
+            }
+        }
+
+        $annexCollection = count($annexIds)
+            ? Annex::whereIn('id', $annexIds)->get()
+            : collect();
+
+        $annexes = $annexCollection->map(function ($a) use ($companyId, $program) {
             $files = [];
             $contentText = null;
             $uploadedAt = null;
@@ -1467,7 +1498,7 @@ class ProgramController extends Controller
                 'uploaded_at' => $uploadedAt,
                 'files' => $files,
             ];
-        })->toArray();
+        })->values()->toArray();
 
         // POEs: si se suministra company_id, obtener registros de company_poe_records para las poes del programa
         $poes = [];
