@@ -707,6 +707,76 @@ class ProgramController extends Controller
                     continue;
                 }
 
+                if ($annexInfo && $annexInfo->content_type === 'pdf') {
+                    // Para anexos tipo PDF: extraer páginas como imágenes e insertar
+                    try {
+                        $pdfSubmission = $submissions->first();
+                        
+                        if ($pdfSubmission && $pdfSubmission->file_path) {
+                            try {
+                                $pdfPath = Storage::disk('public')->path($pdfSubmission->file_path);
+                            } catch (\Throwable $t) {
+                                $pdfPath = storage_path('app/public/' . $pdfSubmission->file_path);
+                            }
+                            
+                            if (file_exists($pdfPath)) {
+                                Log::info("Procesando anexo PDF: {$annexInfo->nombre}", ['path' => $pdfPath]);
+                                
+                                // Extraer páginas del PDF como imágenes
+                                $pdfPageImages = $this->extractPdfPagesToImages($pdfPath);
+                                
+                                if (!empty($pdfPageImages)) {
+                                    // Combinar metadata + todas las páginas del PDF verticalmente
+                                    $combinedImagePath = $this->combineImagesVertically($metaImagePath, $pdfPageImages);
+                                    $tempImagePaths[] = $combinedImagePath;
+                                    $tempImagePaths = array_merge($tempImagePaths, $pdfPageImages);
+                                    
+                                    // Crear copia única
+                                    $uniquePath = $this->createUniqueImageCopy($combinedImagePath);
+                                    $tempImagePaths[] = $uniquePath;
+                                    
+                                    // Insertar imagen combinada
+                                    $templateProcessor->setImageValue($placeholder, [
+                                        'path' => $uniquePath,
+                                        'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
+                                        'ratio' => true
+                                    ]);
+                                    $placeholdersWithImage[$placeholder] = true;
+                                    Log::info("Anexo PDF insertado con " . count($pdfPageImages) . " página(s): {$annexInfo->nombre}");
+                                } else {
+                                    // No se pudieron extraer páginas, solo metadata
+                                    $uniquePath = $this->createUniqueImageCopy($metaImagePath);
+                                    $tempImagePaths[] = $uniquePath;
+                                    
+                                    $templateProcessor->setImageValue($placeholder, [
+                                        'path' => $uniquePath,
+                                        'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
+                                        'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
+                                        'ratio' => false
+                                    ]);
+                                    $placeholdersWithImage[$placeholder] = true;
+                                    Log::warning("No se pudieron extraer páginas del PDF, solo metadata: {$annexInfo->nombre}");
+                                }
+                            } else {
+                                // Archivo PDF no existe
+                                $templateProcessor->setValue($placeholder, '(PDF no encontrado)');
+                                $placeholdersWithImage[$placeholder] = true;
+                                Log::warning("Archivo PDF no encontrado: {$pdfPath}");
+                            }
+                        } else {
+                            // Sin PDF cargado, omitir (o poner solo metadata)
+                            $templateProcessor->setValue($placeholder, '');
+                            $placeholdersWithImage[$placeholder] = true;
+                            Log::info("Anexo PDF sin archivo cargado, placeholder vacío: {$annexInfo->nombre}");
+                        }
+                    } catch (\Throwable $e) {
+                        $templateProcessor->setValue($placeholder, '(Error en anexo PDF)');
+                        $placeholdersWithImage[$placeholder] = true;
+                        Log::error("Error procesando anexo PDF: {$annexInfo->nombre} -> {$e->getMessage()}");
+                    }
+                    continue;
+                }
+
                 // Caso imágenes / archivos: reunir imágenes del anexo
                 $annexImages = [];
                 foreach ($submissions as $s) {
@@ -723,24 +793,44 @@ class ProgramController extends Controller
                     }
                 }
 
-                // Para otros tipos de anexos (imágenes/archivos): solo insertar metadata (ya es cuadrada 2400x2400)
+                // Para anexos tipo imagen: combinar metadata con las imágenes subidas
                 try {
-                    // Crear copia única para evitar conflictos con imágenes de plantilla
-                    $uniquePath = $this->createUniqueImageCopy($metaImagePath);
-                    $tempImagePaths[] = $uniquePath;
+                    $finalImagePath = null;
                     
-                    // Insertar con tamaño fijo en cm (16.5cm = ancho completo sin combinar)
-                    $templateProcessor->setImageValue($placeholder, [
-                        'path' => $uniquePath,
-                        'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
-                        'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
-                        'ratio' => false // No ratio para mantener cuadrado exacto
-                    ]);
+                    // Si hay imágenes subidas, combinarlas verticalmente con la metadata
+                    if (!empty($annexImages)) {
+                        $finalImagePath = $this->combineImagesVertically($metaImagePath, $annexImages);
+                        $tempImagePaths[] = $finalImagePath;
+                        Log::info("Anexo combinado (metadata + imágenes)", [
+                            'nombre' => $annexInfo?->nombre,
+                            'num_imagenes' => count($annexImages)
+                        ]);
+                        
+                        // Imagen combinada cuadrada - usar ancho completo con ratio para mantener proporciones
+                        $templateProcessor->setImageValue($placeholder, [
+                            'path' => $finalImagePath,
+                            'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(17),
+                            'ratio' => true // Mantener proporciones - altura se calculará automáticamente
+                        ]);
+                    } else {
+                        // Sin imágenes, solo usar metadata (cuadrada 2400x2400)
+                        $finalImagePath = $this->createUniqueImageCopy($metaImagePath);
+                        $tempImagePaths[] = $finalImagePath;
+                        Log::info("Anexo solo metadata (sin imágenes subidas): {$annexInfo?->nombre}");
+                        
+                        // Metadata sola - forzar cuadrado
+                        $templateProcessor->setImageValue($placeholder, [
+                            'path' => $finalImagePath,
+                            'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(17),
+                            'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(17),
+                            'ratio' => false // No ratio para mantener cuadrado exacto
+                        ]);
+                    }
+                    
                     $placeholdersWithImage[$placeholder] = true;
-                    Log::info("Anexo (metadata cuadrada) insertado: {$annexInfo?->nombre}");
                 } catch (\Throwable $e) {
                     $templateProcessor->setValue($placeholder, '(Anexo no proporcionado)');
-                    Log::warning("Error insertando metadata: {$e->getMessage()}");
+                    Log::warning("Error insertando anexo de imagen: {$e->getMessage()}");
                 }
             }
 
@@ -1092,7 +1182,7 @@ class ProgramController extends Controller
             throw new \RuntimeException("Directorio de salida no existe: {$outputDir}");
         }
 
-        $conversionEndpoint = 'http://178.16.141.125:5050/convert';
+        $conversionEndpoint = env('PDF_CONVERSION_ENDPOINT', 'http://178.16.141.125:5050/convert');
         
         Log::info('Convirtiendo DOCX a PDF usando endpoint HTTP', [
             'endpoint' => $conversionEndpoint,
@@ -1518,9 +1608,9 @@ class ProgramController extends Controller
             File::makeDirectory($tempDir, 0755, true);
         }
 
-        // Dimensiones CUADRADAS - mismo ancho y alto
+        // Dimensiones RECTANGULARES - más ancho que alto para mejor legibilidad
         $width = 2400; 
-        $height = 2400; // Ahora es cuadrado
+        $height = 800; // Altura reducida para formato rectangular
         $borderThick = 4;
         
         $im = imagecreatetruecolor($width, $height);
@@ -1614,8 +1704,8 @@ class ProgramController extends Controller
         
         $title = strtoupper($annexHeaderData['name'] ?? 'ANEXO');
         if ($useTTF) {
-            $titleFontSize = 48; // Aumentado para el formato cuadrado
-            $titleY = (int)($height / 2 + 18); // Ajuste vertical para baseline TTF
+            $titleFontSize = 42; // Ajustado para formato rectangular
+            $titleY = (int)($height / 2 + 14); // Centrado verticalmente
             $drawTextCenteredTTF($im, $title, $col2X, $titleY, $col2W, $titleFontSize, $white, $fontPath);
         } else {
             $fontTitle = 5;
@@ -1625,7 +1715,7 @@ class ProgramController extends Controller
 
         // === COLUMNA 3: PANEL DERECHO (4 FILAS) ===
         // Dividir en 4 filas iguales para: Versión | Logo pequeño | Fecha | Código
-        $rowHeight = (int)($height / 4);
+        $rowHeight = (int)($height / 4); // 800/4 = 200px por fila
         
         // Dibujar líneas horizontales para separar filas en col3
         for ($i = 1; $i < 4; $i++) {
@@ -1634,12 +1724,12 @@ class ProgramController extends Controller
         }
         
         // FILA 1: "Versión" + número
-        $row1Y = 180; // Ajustado para formato cuadrado
+        $row1Y = 50; // Ajustado para formato rectangular
         $versionLabel = "Version";
         $versionValue = $companyData['version'] ?? '1';
         if ($useTTF) {
-            $drawTextCenteredTTF($im, $versionLabel, $col3X, $row1Y + 28, $col3W, 28, $black, $fontPath);
-            $drawTextCenteredTTF($im, $versionValue, $col3X, $row1Y + 100, $col3W, 36, $black, $fontPath);
+            $drawTextCenteredTTF($im, $versionLabel, $col3X, $row1Y + 20, $col3W, 22, $black, $fontPath);
+            $drawTextCenteredTTF($im, $versionValue, $col3X, $row1Y + 80, $col3W, 32, $black, $fontPath);
         } else {
             $drawTextCentered($im, $versionLabel, $col3X, $row1Y, $col3W, 4, $black);
             $drawTextCentered($im, $versionValue, $col3X, $row1Y + 30, $col3W, 5, $black);
@@ -1649,12 +1739,12 @@ class ProgramController extends Controller
         $row2Y = $rowHeight;
         $rightLogo = $loadImage($companyData['logo_derecho'] ?? null);
         if ($rightLogo) {
-            $drawScaled($im, $rightLogo, $col3X + 30, $row2Y + 50, $col3W - 60, $rowHeight - 100);
+            $drawScaled($im, $rightLogo, $col3X + 30, $row2Y + 20, $col3W - 60, $rowHeight - 40);
             imagedestroy($rightLogo);
         }
 
         // FILA 3: "Fecha" + fecha formateada
-        $row3Y = $rowHeight * 2 + 180; // Ajustado para formato cuadrado
+        $row3Y = $rowHeight * 2 + 50; // Ajustado para formato rectangular
         $fechaLabel = "Fecha";
         $fechaFmt = '';
         if (!empty($companyData['fecha_inicio'])) {
@@ -1665,21 +1755,21 @@ class ProgramController extends Controller
             $fechaFmt = substr($annexHeaderData['uploaded_at'], 0, 10);
         }
         if ($useTTF) {
-            $drawTextCenteredTTF($im, $fechaLabel, $col3X, $row3Y + 28, $col3W, 28, $black, $fontPath);
-            $drawTextCenteredTTF($im, $fechaFmt, $col3X, $row3Y + 100, $col3W, 32, $black, $fontPath);
+            $drawTextCenteredTTF($im, $fechaLabel, $col3X, $row3Y + 20, $col3W, 22, $black, $fontPath);
+            $drawTextCenteredTTF($im, $fechaFmt, $col3X, $row3Y + 80, $col3W, 28, $black, $fontPath);
         } else {
             $drawTextCentered($im, $fechaLabel, $col3X, $row3Y + 5, $col3W, 4, $black);
             $drawTextCentered($im, $fechaFmt, $col3X, $row3Y + 35, $col3W, 3, $black);
         }
 
         // FILA 4: "Código" (fondo azul marino) + código del anexo
-        $row4Y = $rowHeight * 3 + 180; // Ajustado para formato cuadrado
-        imagefilledrectangle($im, $col3X + 1, $row4Y - 180 + 1, $width - 2, $height - 2, $navyBlue);
+        $row4Y = $rowHeight * 3 + 50; // Ajustado para formato rectangular
+        imagefilledrectangle($im, $col3X + 1, $row4Y - 50 + 1, $width - 2, $height - 2, $navyBlue);
         $codigoLabel = "Codigo";
         $codigoValue = $annexHeaderData['code'] ?? '';
         if ($useTTF) {
-            $drawTextCenteredTTF($im, $codigoLabel, $col3X, $row4Y + 28, $col3W, 28, $white, $fontPath);
-            $drawTextCenteredTTF($im, $codigoValue, $col3X, $row4Y + 100, $col3W, 32, $white, $fontPath);
+            $drawTextCenteredTTF($im, $codigoLabel, $col3X, $row4Y + 20, $col3W, 22, $white, $fontPath);
+            $drawTextCenteredTTF($im, $codigoValue, $col3X, $row4Y + 80, $col3W, 28, $white, $fontPath);
         } else {
             $drawTextCentered($im, $codigoLabel, $col3X, $row4Y + 5, $col3W, 4, $white);
             $drawTextCentered($im, $codigoValue, $col3X, $row4Y + 35, $col3W, 3, $white);
@@ -1697,6 +1787,8 @@ class ProgramController extends Controller
 
     /**
      * Combina verticalmente la imagen de metadata con las imágenes del anexo.
+     * La metadata ocupará 50% del espacio vertical y el contenido 50%.
+     * La imagen final tendrá ancho normalizado de 2400px para ocupar 100% del contenedor.
      * @param string $metadataImagePath Ruta a la imagen de metadata generada
      * @param array $annexImages Array de rutas a las imágenes del anexo
      * @return string Ruta al PNG combinado
@@ -1708,6 +1800,10 @@ class ProgramController extends Controller
             File::makeDirectory($tempDir, 0755, true);
         }
 
+        // Ancho estándar para todas las imágenes combinadas (ocupará 100% del contenedor)
+        $standardWidth = 2400;
+        $spacing = 20;
+
         // Cargar imagen de metadata
         $metaImg = @imagecreatefrompng($metadataImagePath);
         if (!$metaImg) {
@@ -1717,11 +1813,9 @@ class ProgramController extends Controller
         $metaWidth = imagesx($metaImg);
         $metaHeight = imagesy($metaImg);
 
-        // Cargar todas las imágenes del anexo y calcular dimensiones
-        $images = [];
-        $totalHeight = $metaHeight;
-        $maxWidth = $metaWidth;
-        $spacing = 20; // Espacio entre imágenes
+        // Cargar y escalar todas las imágenes del anexo al ancho estándar
+        $scaledImages = [];
+        $totalContentHeight = 0;
 
         foreach ($annexImages as $path) {
             $img = @imagecreatefromstring(file_get_contents($path));
@@ -1729,38 +1823,73 @@ class ProgramController extends Controller
                 Log::warning("No se pudo cargar imagen del anexo: {$path}");
                 continue;
             }
-            $images[] = [
-                'resource' => $img,
-                'width' => imagesx($img),
-                'height' => imagesy($img),
+            
+            $origWidth = imagesx($img);
+            $origHeight = imagesy($img);
+            
+            // Escalar al ancho estándar manteniendo proporciones
+            $scaleFactor = $standardWidth / $origWidth;
+            $newHeight = (int)($origHeight * $scaleFactor);
+            
+            $scaledImg = imagecreatetruecolor($standardWidth, $newHeight);
+            $white = imagecolorallocate($scaledImg, 255, 255, 255);
+            imagefill($scaledImg, 0, 0, $white);
+            imagecopyresampled($scaledImg, $img, 0, 0, 0, 0, $standardWidth, $newHeight, $origWidth, $origHeight);
+            imagedestroy($img);
+            
+            $scaledImages[] = [
+                'resource' => $scaledImg,
+                'width' => $standardWidth,
+                'height' => $newHeight,
             ];
-            $totalHeight += imagesy($img) + $spacing;
-            $maxWidth = max($maxWidth, imagesx($img));
+            $totalContentHeight += $newHeight;
         }
 
-        if (empty($images)) {
+        if (empty($scaledImages)) {
             // Si no hay imágenes del anexo, retornar solo la metadata
             imagedestroy($metaImg);
             return $metadataImagePath;
         }
 
-        // Crear imagen combinada
-        $combined = imagecreatetruecolor($maxWidth, $totalHeight);
-        $white = imagecolorallocate($combined, 255, 255, 255);
-        imagefilledrectangle($combined, 0, 0, $maxWidth - 1, $totalHeight - 1, $white);
+        // Imagen con ancho estándar 2400px y altura variable según contenido
+        // Metadata se mantiene en su altura original (800px)
+        // Contenido se escala al ancho estándar manteniendo proporciones
+        
+        // Escalar metadata al ancho estándar si es necesario
+        if ($metaWidth > $standardWidth) {
+            $metaScaleFactor = $standardWidth / $metaWidth;
+            $newMetaWidth = $standardWidth;
+            $newMetaHeight = (int)($metaHeight * $metaScaleFactor);
+            
+            $scaledMeta = imagecreatetruecolor($newMetaWidth, $newMetaHeight);
+            $white = imagecolorallocate($scaledMeta, 255, 255, 255);
+            imagefill($scaledMeta, 0, 0, $white);
+            imagecopyresampled($scaledMeta, $metaImg, 0, 0, 0, 0, $newMetaWidth, $newMetaHeight, $metaWidth, $metaHeight);
+            imagedestroy($metaImg);
+            $metaImg = $scaledMeta;
+            $metaWidth = $newMetaWidth;
+            $metaHeight = $newMetaHeight;
+        }
+        
+        // Calcular altura total: metadata + contenido (sin espaciado)
+        $totalHeight = $metaHeight + $totalContentHeight;
 
-        // Copiar metadata al inicio
+        // Crear imagen combinada con ancho estándar y altura variable
+        $combined = imagecreatetruecolor($standardWidth, $totalHeight);
+        $white = imagecolorallocate($combined, 255, 255, 255);
+        imagefilledrectangle($combined, 0, 0, $standardWidth - 1, $totalHeight - 1, $white);
+
+        // Copiar metadata al inicio (centrada horizontalmente)
         $currentY = 0;
-        $metaX = (int)(($maxWidth - $metaWidth) / 2);
+        $metaX = (int)(($standardWidth - $metaWidth) / 2);
         imagecopy($combined, $metaImg, $metaX, $currentY, 0, 0, $metaWidth, $metaHeight);
-        $currentY += $metaHeight + $spacing;
+        $currentY += $metaHeight;
         imagedestroy($metaImg);
 
-        // Copiar cada imagen del anexo
-        foreach ($images as $imgData) {
-            $imgX = (int)(($maxWidth - $imgData['width']) / 2);
-            imagecopy($combined, $imgData['resource'], $imgX, $currentY, 0, 0, $imgData['width'], $imgData['height']);
-            $currentY += $imgData['height'] + $spacing;
+        // Copiar cada imagen del contenido (ya están escaladas al ancho estándar)
+        foreach ($scaledImages as $imgData) {
+            imagecopy($combined, $imgData['resource'], 0, $currentY, 0, 0, $imgData['width'], $imgData['height']);
+            $currentY += $imgData['height'];
             imagedestroy($imgData['resource']);
         }
 
@@ -1769,9 +1898,15 @@ class ProgramController extends Controller
         imagepng($combined, $outPath);
         imagedestroy($combined);
 
-        Log::info('Imagen combinada verticalmente (metadata + anexos)', [
+        Log::info('Imagen combinada con ancho completo (metadata + contenido)', [
             'path' => $outPath,
-            'images_count' => count($images),
+            'images_count' => count($scaledImages),
+            'width' => $standardWidth,
+            'height' => $totalHeight,
+            'is_square' => ($standardWidth === $totalHeight),
+            'metadata_height' => $metaHeight,
+            'content_height' => $totalContentHeight,
+            'metadata_percentage' => round(($metaHeight / $totalHeight) * 100, 1) . '%'
         ]);
 
         return $outPath;
@@ -2996,5 +3131,63 @@ class ProgramController extends Controller
             'program' => $payload,
             'company' => $companyPayload,
         ]);
+    }
+
+    /**
+     * Extraer todas las p�ginas de un PDF como im�genes PNG
+     * @param string $pdfPath Ruta absoluta al archivo PDF
+     * @return array Array de rutas a las im�genes generadas
+     */
+    private function extractPdfPagesToImages(string $pdfPath): array
+    {
+        $images = [];
+        
+        if (!file_exists($pdfPath)) {
+            Log::error("PDF no existe para extracci�n: {$pdfPath}");
+            return [];
+        }
+
+        try {
+            // Intentar con la extensi�n Imagick de PHP (si est� instalada)
+            if (extension_loaded('imagick')) {
+                $imagick = new \Imagick();
+                $imagick->setResolution(150, 150);
+                $imagick->readImage($pdfPath);
+                
+                $numPages = $imagick->getNumberImages();
+                Log::info("PDF tiene {$numPages} p�gina(s)", ['pdf' => $pdfPath]);
+                
+                $tempDir = storage_path('app/temp');
+                if (!File::isDirectory($tempDir)) {
+                    File::makeDirectory($tempDir, 0755, true);
+                }
+                
+                foreach ($imagick as $pageIndex => $page) {
+                    $page->setImageFormat('png');
+                    $page->setImageBackgroundColor('white');
+                    $page = $page->flattenImages();
+                    
+                    $width = $page->getImageWidth();
+                    $height = $page->getImageHeight();
+                    if ($width > 2400) {
+                        $newHeight = (int)(($height / $width) * 2400);
+                        $page->resizeImage(2400, $newHeight, \Imagick::FILTER_LANCZOS, 1);
+                    }
+                    
+                    $outputPath = $tempDir . '/pdf_page_' . uniqid() . '_p' . ($pageIndex + 1) . '.png';
+                    $page->writeImage($outputPath);
+                    $images[] = $outputPath;
+                }
+                
+                $imagick->clear();
+                $imagick->destroy();
+                
+                return $images;
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Fallo extracci�n con Imagick: {$e->getMessage()}");
+        }
+
+        return [];
     }
 }
