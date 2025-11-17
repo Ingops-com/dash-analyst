@@ -81,6 +81,7 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/users/{id}/status', [UserController::class, 'updateStatus'])->name('users.status.update');
         Route::delete('/users/{id}', [UserController::class, 'destroy'])->name('users.destroy');
         Route::get('/listado-maestro', [MasterListController::class, 'index'])->name('master.list');
+        Route::post('/listado-maestro/config', [MasterListController::class, 'saveConfig'])->name('master.config');
         Route::get('/documentos-empresas', [UserDocumentsController::class, 'index'])->name('user.documents');
     });
 

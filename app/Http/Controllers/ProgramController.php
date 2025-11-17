@@ -665,9 +665,13 @@ class ProgramController extends Controller
                                 // Insertar con tamaño exacto
                                 $templateProcessor->setImageValue($placeholder, [
                                     'path' => $uniquePath,
-                                    'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
-                                    'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
-                                    'ratio' => false
+                                    'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                    'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                    'ratio' => false,
+                                    'wrappingStyle' => 'inline',
+                                    'positioning' => 'relative',
+                                    'posHorizontalRel' => 'margin',
+                                    'posVerticalRel' => 'line'
                                 ]);
                                 $placeholdersWithImage[$placeholder] = true;
                                 Log::info("Anexo de tabla completo (metadata + datos) insertado: {$annexInfo->nombre}");
@@ -678,9 +682,13 @@ class ProgramController extends Controller
                                 
                                 $templateProcessor->setImageValue($placeholder, [
                                     'path' => $uniquePath,
-                                    'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
-                                    'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
-                                    'ratio' => false
+                                    'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                    'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                    'ratio' => false,
+                                    'wrappingStyle' => 'inline',
+                                    'positioning' => 'relative',
+                                    'posHorizontalRel' => 'margin',
+                                    'posVerticalRel' => 'line'
                                 ]);
                                 $placeholdersWithImage[$placeholder] = true;
                                 Log::info("Anexo de tabla sin datos válidos, solo metadata: {$annexInfo->nombre}");
@@ -692,9 +700,13 @@ class ProgramController extends Controller
                             
                             $templateProcessor->setImageValue($placeholder, [
                                 'path' => $uniquePath,
-                                'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
-                                'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
-                                'ratio' => false
+                                'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                'ratio' => false,
+                                'wrappingStyle' => 'inline',
+                                'positioning' => 'relative',
+                                'posHorizontalRel' => 'margin',
+                                'posVerticalRel' => 'line'
                             ]);
                             $placeholdersWithImage[$placeholder] = true;
                             Log::info("Anexo de tabla sin contenido, solo metadata: {$annexInfo->nombre}");
@@ -738,8 +750,12 @@ class ProgramController extends Controller
                                     // Insertar imagen combinada
                                     $templateProcessor->setImageValue($placeholder, [
                                         'path' => $uniquePath,
-                                        'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
-                                        'ratio' => true
+                                        'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                        'ratio' => true,
+                                        'wrappingStyle' => 'inline',
+                                        'positioning' => 'relative',
+                                        'posHorizontalRel' => 'margin',
+                                        'posVerticalRel' => 'line'
                                     ]);
                                     $placeholdersWithImage[$placeholder] = true;
                                     Log::info("Anexo PDF insertado con " . count($pdfPageImages) . " página(s): {$annexInfo->nombre}");
@@ -750,9 +766,13 @@ class ProgramController extends Controller
                                     
                                     $templateProcessor->setImageValue($placeholder, [
                                         'path' => $uniquePath,
-                                        'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
-                                        'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
-                                        'ratio' => false
+                                        'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                        'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                        'ratio' => false,
+                                        'wrappingStyle' => 'inline',
+                                        'positioning' => 'relative',
+                                        'posHorizontalRel' => 'margin',
+                                        'posVerticalRel' => 'line'
                                     ]);
                                     $placeholdersWithImage[$placeholder] = true;
                                     Log::warning("No se pudieron extraer páginas del PDF, solo metadata: {$annexInfo->nombre}");
@@ -809,8 +829,12 @@ class ProgramController extends Controller
                         // Imagen combinada cuadrada - usar ancho completo con ratio para mantener proporciones
                         $templateProcessor->setImageValue($placeholder, [
                             'path' => $finalImagePath,
-                            'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(17),
-                            'ratio' => true // Mantener proporciones - altura se calculará automáticamente
+                            'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                            'ratio' => true, // Mantener proporciones - altura se calculará automáticamente
+                            'wrappingStyle' => 'inline',
+                            'positioning' => 'relative',
+                            'posHorizontalRel' => 'margin',
+                            'posVerticalRel' => 'line'
                         ]);
                     } else {
                         // Sin imágenes, solo usar metadata (cuadrada 2400x2400)
@@ -821,9 +845,13 @@ class ProgramController extends Controller
                         // Metadata sola - forzar cuadrado
                         $templateProcessor->setImageValue($placeholder, [
                             'path' => $finalImagePath,
-                            'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(17),
-                            'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(17),
-                            'ratio' => false // No ratio para mantener cuadrado exacto
+                            'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                            'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                            'ratio' => false, // No ratio para mantener cuadrado exacto
+                            'wrappingStyle' => 'inline',
+                            'positioning' => 'relative',
+                            'posHorizontalRel' => 'margin',
+                            'posVerticalRel' => 'line'
                         ]);
                     }
                     
@@ -2961,12 +2989,43 @@ class ProgramController extends Controller
     public function show(Request $request, $id)
     {
         $companyId = $request->query('company_id');
+        $user = $request->user();
+        $role = strtolower((string) optional($user)->rol);
+        $isAdmin = in_array($role, ['admin', 'administrador', 'super-admin']);
+
+        if ($companyId && ! $isAdmin) {
+            $hasAccess = DB::table('company_user')
+                ->where('user_id', $user->id)
+                ->where('company_id', $companyId)
+                ->exists();
+            if (! $hasAccess) {
+                abort(403, 'No tienes acceso a esta empresa');
+            }
+        }
 
         $program = Program::findOrFail($id);
 
-        // Obtener anexos vinculados al programa
+        // Obtener anexos vinculados al programa, filtrando por configuracin de la empresa si aplica
         $annexIds = DB::table('program_annexes')->where('program_id', $program->id)->pluck('annex_id')->toArray();
-        $annexes = Annex::whereIn('id', $annexIds)->get()->map(function ($a) use ($companyId, $program) {
+        if ($companyId) {
+            $assignedAnnexIds = DB::table('company_program_config')
+                ->where('company_id', $companyId)
+                ->where('program_id', $program->id)
+                ->pluck('annex_id')
+                ->toArray();
+
+            if (count($assignedAnnexIds)) {
+                $annexIds = array_values(array_intersect($annexIds, $assignedAnnexIds));
+            } else {
+                $annexIds = [];
+            }
+        }
+
+        $annexCollection = count($annexIds)
+            ? Annex::whereIn('id', $annexIds)->get()
+            : collect();
+
+        $annexes = $annexCollection->map(function ($a) use ($companyId, $program) {
             $files = [];
             $contentText = null;
             $tableData = null;
@@ -3054,7 +3113,7 @@ class ProgramController extends Controller
                 'uploaded_at' => $uploadedAt,
                 'files' => $files,
             ];
-        })->toArray();
+        })->values()->toArray();
 
         // POEs: si se suministra company_id, obtener registros de company_poe_records para las poes del programa
         $poes = [];
@@ -3131,63 +3190,5 @@ class ProgramController extends Controller
             'program' => $payload,
             'company' => $companyPayload,
         ]);
-    }
-
-    /**
-     * Extraer todas las p�ginas de un PDF como im�genes PNG
-     * @param string $pdfPath Ruta absoluta al archivo PDF
-     * @return array Array de rutas a las im�genes generadas
-     */
-    private function extractPdfPagesToImages(string $pdfPath): array
-    {
-        $images = [];
-        
-        if (!file_exists($pdfPath)) {
-            Log::error("PDF no existe para extracci�n: {$pdfPath}");
-            return [];
-        }
-
-        try {
-            // Intentar con la extensi�n Imagick de PHP (si est� instalada)
-            if (extension_loaded('imagick')) {
-                $imagick = new \Imagick();
-                $imagick->setResolution(150, 150);
-                $imagick->readImage($pdfPath);
-                
-                $numPages = $imagick->getNumberImages();
-                Log::info("PDF tiene {$numPages} p�gina(s)", ['pdf' => $pdfPath]);
-                
-                $tempDir = storage_path('app/temp');
-                if (!File::isDirectory($tempDir)) {
-                    File::makeDirectory($tempDir, 0755, true);
-                }
-                
-                foreach ($imagick as $pageIndex => $page) {
-                    $page->setImageFormat('png');
-                    $page->setImageBackgroundColor('white');
-                    $page = $page->flattenImages();
-                    
-                    $width = $page->getImageWidth();
-                    $height = $page->getImageHeight();
-                    if ($width > 2400) {
-                        $newHeight = (int)(($height / $width) * 2400);
-                        $page->resizeImage(2400, $newHeight, \Imagick::FILTER_LANCZOS, 1);
-                    }
-                    
-                    $outputPath = $tempDir . '/pdf_page_' . uniqid() . '_p' . ($pageIndex + 1) . '.png';
-                    $page->writeImage($outputPath);
-                    $images[] = $outputPath;
-                }
-                
-                $imagick->clear();
-                $imagick->destroy();
-                
-                return $images;
-            }
-        } catch (\Throwable $e) {
-            Log::warning("Fallo extracci�n con Imagick: {$e->getMessage()}");
-        }
-
-        return [];
     }
 }
