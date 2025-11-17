@@ -64,9 +64,12 @@ class ProgramListController extends Controller
             // Enforce enum values to match DB schema and avoid truncation
             'tipo' => 'required|in:ISO 22000,PSB,Invima',
             'placeholder' => 'nullable|string|max:255',
-            'content_type' => 'required|in:image,text',
+            'content_type' => 'required|in:image,text,table',
             'programIds' => 'required|array|min:1',
             'programIds.*' => 'exists:programs,id',
+            'table_columns' => 'nullable|array',
+            'table_columns.*' => 'string|max:255',
+            'table_header_color' => 'nullable|string|max:7',
         ]);
 
         // Create the annex
@@ -78,6 +81,8 @@ class ProgramListController extends Controller
             'tipo' => $validated['tipo'],
             // Valid enum values: 'En revisión', 'Aprobado', 'Obsoleto'
             'status' => 'En revisión',
+            'table_columns' => $validated['content_type'] === 'table' ? ($validated['table_columns'] ?? []) : null,
+            'table_header_color' => $validated['content_type'] === 'table' ? ($validated['table_header_color'] ?? '#153366') : null,
         ]);
 
         // Attach to programs using direct DB insert (pivot table has no timestamps or id)
@@ -102,9 +107,12 @@ class ProgramListController extends Controller
             'codigo_anexo' => 'required|string|max:255|unique:annexes,codigo_anexo,' . $id,
             'tipo' => 'required|in:ISO 22000,PSB,Invima',
             'placeholder' => 'nullable|string|max:255',
-            'content_type' => 'required|in:image,text',
+            'content_type' => 'required|in:image,text,table',
             'programIds' => 'required|array|min:1',
             'programIds.*' => 'exists:programs,id',
+            'table_columns' => 'nullable|array',
+            'table_columns.*' => 'string|max:255',
+            'table_header_color' => 'nullable|string|max:7',
         ]);
 
         // Update the annex
@@ -114,6 +122,8 @@ class ProgramListController extends Controller
             'placeholder' => $validated['placeholder'] ?? null,
             'content_type' => $validated['content_type'],
             'tipo' => $validated['tipo'],
+            'table_columns' => $validated['content_type'] === 'table' ? ($validated['table_columns'] ?? []) : null,
+            'table_header_color' => $validated['content_type'] === 'table' ? ($validated['table_header_color'] ?? '#153366') : null,
         ]);
 
         // Update program relationships
@@ -154,7 +164,11 @@ class ProgramListController extends Controller
                         'codigo_anexo' => $annex->codigo_anexo ?? 'A-' . str_pad($annex->id, 3, '0', STR_PAD_LEFT),
                         'tipo' => $annex->tipo ?? 'FORMATO',
                         'consecutivo' => $annex->id, // o un campo específico si existe
-                        'programId' => $annex->pivot->program_id
+                        'programId' => $annex->pivot->program_id,
+                        'content_type' => $annex->content_type,
+                        'placeholder' => $annex->placeholder,
+                        'table_columns' => $annex->table_columns,
+                        'table_header_color' => $annex->table_header_color,
                     ];
                 })->values(),
             ];

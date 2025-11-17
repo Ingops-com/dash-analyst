@@ -17,7 +17,19 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 export type AnnexType = 'IMAGES' | 'PDF' | 'WORD' | 'XLSX' | 'FORMATO';
 interface Poe { id: number; date: string }
 interface AnnexFile { id?: number; name?: string; url?: string; mime?: string; uploaded_at?: string }
-interface Annex { id: number; name: string; code?: string; uploaded_at?: string; type: AnnexType; content_type?: string; content_text?: string; files: AnnexFile[] }
+interface Annex { 
+    id: number; 
+    name: string; 
+    code?: string; 
+    uploaded_at?: string; 
+    type: AnnexType; 
+    content_type?: string; 
+    content_text?: string; 
+    table_columns?: string[];
+    table_header_color?: string;
+    table_data?: Record<string, string>[];
+    files: AnnexFile[] 
+}
 interface Program { id: number; name: string; annexes: Annex[]; poes: Poe[] }
 const typeLabel: Record<AnnexType, string> = { IMAGES: 'Imágenes', PDF: 'PDF', WORD: 'Word', XLSX: 'Excel', FORMATO: 'Formato' };
 const typeAccept: Record<AnnexType, string> = { IMAGES: 'image/*', PDF: 'application/pdf', WORD: '.doc,.docx', XLSX: '.xls,.xlsx', FORMATO: '' };
@@ -45,6 +57,11 @@ export default function ProgramView() {
   const [viewOpenFor, setViewOpenFor] = useState<{ kind: 'ANNEX' | 'POE' | null; id?: number }>({ kind: null });
   const [isGenerating, setIsGenerating] = useState(false);
   const [textContent, setTextContent] = useState<Record<number, string>>({});
+  const [tableData, setTableData] = useState<Record<number, Record<string, string>[]>>({});
+
+  // Obtener company_id dinámicamente
+  const serverCompany = (props as any).company as any | undefined;
+  const companyId = serverCompany?.id ?? 1;
 
   // Sincronizar el estado local con los datos del servidor cuando cambien
   useEffect(() => {
@@ -52,12 +69,17 @@ export default function ProgramView() {
       setProgram(serverProgram as Program);
       // Cargar content_text existente para anexos de texto
       const textMap: Record<number, string> = {};
+      const tableMap: Record<number, Record<string, string>[]> = {};
       (serverProgram as Program).annexes.forEach(annex => {
         if (annex.content_type === 'text' && annex.content_text) {
           textMap[annex.id] = annex.content_text;
         }
+        if (annex.content_type === 'table' && annex.table_data) {
+          tableMap[annex.id] = annex.table_data;
+        }
       });
       setTextContent(textMap);
+      setTableData(tableMap);
     }
   }, [serverProgram]);
 
@@ -66,11 +88,13 @@ export default function ProgramView() {
     const annexesForProgress = program.annexes.filter(a => a.type !== 'FORMATO');
     const total = annexesForProgress.length;
     if (!total) return 0;
-    const completed = annexesForProgress.filter(a => 
-      a.content_type === 'text' ? !!a.content_text : a.files.length > 0
-    ).length;
+    const completed = annexesForProgress.filter(a => {
+      if (a.content_type === 'text') return !!a.content_text;
+      if (a.content_type === 'table') return (tableData[a.id] && tableData[a.id].length > 0);
+      return a.files.length > 0;
+    }).length;
     return Math.round((completed / total) * 100);
-  }, [program]);
+  }, [program, tableData]);
   const handleAddPoe = () => setProgram(prev => ({ ...prev, poes: [{ id: Date.now(), date: new Date().toLocaleDateString('es-CO') }, ...prev.poes] }));
   
   const handleAnnexUpload = async (annexId: number, e: ChangeEvent<HTMLInputElement>) => {
@@ -194,6 +218,179 @@ export default function ProgramView() {
       console.error('Error saving text content:', error);
       alert(error instanceof Error ? error.message : 'Error al guardar el texto');
     }
+  };
+
+  const handleAddTableRow = (annexId: number) => {
+    const annex = program.annexes.find(a => a.id === annexId);
+    if (!annex || !annex.table_columns) return;
+    
+    const newRow: Record<string, string> = {};
+    annex.table_columns.forEach(col => {
+      newRow[col] = '';
+    });
+    
+    setTableData(prev => ({
+      ...prev,
+      [annexId]: [...(prev[annexId] || []), newRow]
+    }));
+  };
+
+  const handleRemoveTableRow = (annexId: number, rowIndex: number) => {
+    setTableData(prev => ({
+      ...prev,
+      [annexId]: (prev[annexId] || []).filter((_, i) => i !== rowIndex)
+    }));
+  };
+
+  const handleTableCellChange = (annexId: number, rowIndex: number, columnName: string, value: string) => {
+    setTableData(prev => {
+      const annexData = [...(prev[annexId] || [])];
+      annexData[rowIndex] = {
+        ...annexData[rowIndex],
+        [columnName]: value
+      };
+      return {
+        ...prev,
+        [annexId]: annexData
+      };
+    });
+  };
+
+  const handleTableSubmit = async (annexId: number) => {
+    const data = tableData[annexId];
+    if (!data || data.length === 0) {
+      alert('Por favor agrega al menos una fila a la tabla.');
+      return;
+    }
+
+    // Get company ID from props
+    const serverCompany = (props as any).company as any | undefined;
+    if (!serverCompany || !serverCompany.id) {
+      alert('No se pudo identificar la empresa. Por favor, recarga la página.');
+      return;
+    }
+
+    // Get CSRF token
+    const csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
+    if (!csrfTokenMeta) {
+      alert('Token CSRF no encontrado. Por favor, recarga la página.');
+      return;
+    }
+    const csrfToken = (csrfTokenMeta as HTMLMetaElement).content;
+
+    try {
+      const response = await fetch(`/programa/${program.id}/annex/${annexId}/upload`, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-TOKEN': csrfToken,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          company_id: serverCompany.id,
+          table_data: data,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Error al guardar la tabla' }));
+        throw new Error(errorData.message || 'Error al guardar la tabla');
+      }
+
+      // Recargar la página para obtener los datos actualizados del servidor
+      router.reload({
+        only: ['program'],
+        onSuccess: () => {
+          setUploadOpenFor(null);
+        }
+      });
+
+    } catch (error) {
+      console.error('Error saving table data:', error);
+      alert(error instanceof Error ? error.message : 'Error al guardar la tabla');
+    }
+  };
+
+  const renderTableInput = (annex: Annex) => {
+    if (!annex.table_columns || annex.table_columns.length === 0) {
+      return (
+        <div className="text-sm text-muted-foreground">
+          Este anexo tipo tabla no tiene columnas configuradas.
+        </div>
+      );
+    }
+
+    const currentData = tableData[annex.id] || [];
+    const headerColor = annex.table_header_color || '#153366';
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-medium">Datos de la tabla</h4>
+          <Button 
+            type="button" 
+            variant="outline" 
+            size="sm" 
+            onClick={() => handleAddTableRow(annex.id)}
+          >
+            <PlusCircle className="h-4 w-4 mr-2" />
+            Agregar Fila
+          </Button>
+        </div>
+
+        {currentData.length > 0 ? (
+          <div className="border rounded-md overflow-auto max-h-[400px]">
+            <table className="w-full text-sm">
+              <thead style={{ backgroundColor: headerColor }}>
+                <tr>
+                  {annex.table_columns.map((col, idx) => (
+                    <th key={idx} className="px-3 py-2 text-left text-white font-semibold border-r last:border-r-0">
+                      {col}
+                    </th>
+                  ))}
+                  <th className="px-3 py-2 w-16"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {currentData.map((row, rowIdx) => (
+                  <tr key={rowIdx} className="border-b hover:bg-muted/50">
+                    {annex.table_columns!.map((col, colIdx) => (
+                      <td key={colIdx} className="px-2 py-1 border-r last:border-r-0">
+                        <Input
+                          value={row[col] || ''}
+                          onChange={(e) => handleTableCellChange(annex.id, rowIdx, col, e.target.value)}
+                          className="h-8 text-sm"
+                          placeholder={col}
+                        />
+                      </td>
+                    ))}
+                    <td className="px-2 py-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => handleRemoveTableRow(annex.id, rowIdx)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="border rounded-md p-6 text-center text-sm text-muted-foreground">
+            No hay filas. Haz clic en "Agregar Fila" para empezar.
+          </div>
+        )}
+
+        <Button onClick={() => handleTableSubmit(annex.id)} className="w-full">
+          Guardar Tabla
+        </Button>
+      </div>
+    );
   };
   
   const clearAnnexFiles = async (annexId: number) => {
@@ -365,14 +562,10 @@ export default function ProgramView() {
             throw new Error(errorData.message);
         }
 
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Plan-Generado.docx`;
-        a.click();
-        window.URL.revokeObjectURL(url);
-        a.remove();
+  // Ya no descargamos - refrescamos la página para que se actualice el PDF disponible
+  alert('Documento generado exitosamente. El PDF estará disponible en el visor.');
+  // Recargar datos de programa y empresa para obtener la nueva URL del PDF (con cache-busting)
+  router.reload({ only: ['program', 'company'] });
     } catch (error) {
         console.error("Error al generar PDF:", error);
         alert(error instanceof Error ? error.message : "Ocurrió un error inesperado.");
@@ -475,9 +668,15 @@ export default function ProgramView() {
                 <CardContent className="space-y-4 max-h-[420px] overflow-y-auto">
                     {program.annexes.map(annex => {
                         const Icon = typeIcon[annex.type];
-                        const isCompleted = annex.content_type === 'text' ? !!annex.content_text : annex.files.length > 0;
+                        const isCompleted = annex.content_type === 'text' 
+                            ? !!annex.content_text 
+                            : annex.content_type === 'table'
+                            ? (tableData[annex.id] && tableData[annex.id].length > 0)
+                            : annex.files.length > 0;
                         const fileLabel = annex.content_type === 'text' 
                             ? (annex.content_text ? 'Texto proporcionado' : 'Sin texto')
+                            : annex.content_type === 'table'
+                            ? (tableData[annex.id] && tableData[annex.id].length > 0 ? `${tableData[annex.id].length} fila(s)` : 'Sin datos')
                             : (annex.type === 'IMAGES' ? `${annex.files.length} imagen(es)` : annex.files[0]?.name || 'Sin archivo');
                         const textPreview = annex.content_type === 'text' && annex.content_text 
                             ? getTextPreview(annex.content_text, 80) 
@@ -492,6 +691,8 @@ export default function ProgramView() {
                         <p className="font-semibold truncate" title={annex.name}>{annex.name}</p>
                         {annex.content_type === 'text' ? (
                           <Badge variant="secondary" className="text-[11px]">Texto</Badge>
+                        ) : annex.content_type === 'table' ? (
+                          <Badge variant="default" className="text-[11px]">Tabla</Badge>
                         ) : (
                           <Badge variant="outline" className="text-[11px]">Imagen</Badge>
                         )}
@@ -554,6 +755,10 @@ export default function ProgramView() {
                                                             Guardar Texto
                                                         </Button>
                                                     </div>
+                                                ) : annex.content_type === 'table' ? (
+                                                    <div className="space-y-4">
+                                                        {renderTableInput(annex)}
+                                                    </div>
                                                 ) : (
                                                     <Input type="file" accept={typeAccept[annex.type]} multiple={annex.type==='IMAGES'} onChange={(e) => handleAnnexUpload(annex.id, e)} />
                                                 )}
@@ -573,6 +778,26 @@ export default function ProgramView() {
                 </CardContent>
             </Card>
         </div>
+
+        {/* --- VISTA PREVIA DEL PDF GENERADO --- */}
+        {((props as any).company?.current_pdf_url) && (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>Vista Previa del Documento</CardTitle>
+              <CardDescription>Visualización del PDF generado para este programa</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <iframe 
+                // Usar URL con parámetro de versión para evitar cache
+                src={((props as any).company.current_pdf_url_cache as string) || ((props as any).company.current_pdf_url as string)}
+                // Cambiar la key para forzar el re-render cuando cambia la versión del PDF
+                key={String(((props as any).company.current_pdf_mtime as number) ?? '')}
+                className="w-full h-[75vh] border rounded" 
+                title="Vista previa del documento PDF"
+              />
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* --- MODAL VISUALIZADOR (Sin cambios) --- */}
@@ -628,6 +853,43 @@ export default function ProgramView() {
           {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.content_type === 'text' && !currentAnnex.content_text && (
             <div className="p-6 border rounded-lg bg-muted/30 text-center">
               <p className="text-muted-foreground">No hay contenido de texto para este anexo.</p>
+            </div>
+          )}
+          {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.content_type === 'table' && currentAnnex.table_data && currentAnnex.table_data.length > 0 && (
+            <div className="p-6 border rounded-lg bg-white dark:bg-gray-900">
+              <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground border-b pb-2">
+                <FileDigit className="h-4 w-4" />
+                <span>Datos de la tabla ({currentAnnex.table_data.length} filas)</span>
+              </div>
+              <div className="overflow-auto max-h-[60vh] border rounded-lg">
+                <table className="w-full text-sm border-collapse">
+                  <thead style={{ backgroundColor: currentAnnex.table_header_color || '#153366' }}>
+                    <tr>
+                      {currentAnnex.table_columns?.map((col, idx) => (
+                        <th key={idx} className="px-4 py-3 text-left text-white font-semibold border-r last:border-r-0 border-white/20">
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {currentAnnex.table_data.map((row, rowIdx) => (
+                      <tr key={rowIdx} className="border-b hover:bg-muted/50 transition-colors">
+                        {currentAnnex.table_columns?.map((col, colIdx) => (
+                          <td key={colIdx} className="px-4 py-2 border-r last:border-r-0">
+                            {row[col] || '-'}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.content_type === 'table' && (!currentAnnex.table_data || currentAnnex.table_data.length === 0) && (
+            <div className="p-6 border rounded-lg bg-muted/30 text-center">
+              <p className="text-muted-foreground">No hay datos en esta tabla.</p>
             </div>
           )}
           {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.type === 'IMAGES' && currentAnnex.files.length > 0 && (

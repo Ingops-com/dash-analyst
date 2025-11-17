@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
     Table,
     TableBody,
@@ -10,13 +10,14 @@ import {
 import { Badge } from '@/components/ui/badge';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
-import { Head } from '@inertiajs/react';
+import { Head, usePage } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileDown, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -25,12 +26,14 @@ const breadcrumbs: BreadcrumbItem[] = [
     },
 ];
 
-// Dummy data removed — production should provide companies and programs via server
-const allCompanies: any[] = []
-const companyProgramsData: Record<string, any[]> = {}
+type ProgramItem = { id: number; nombre: string; codigo?: string; has_pdf: boolean; has_docx: boolean; pdf_url?: string | null; docx_url?: string | null }
+type CompanyItem = { id: number; nombre: string; correo?: string; nit_empresa?: string; logo?: string | null }
+type Item = { company: CompanyItem; programs: ProgramItem[] }
 
-const CompanyPrograms = ({ companyId }) => {
-    const programs = companyProgramsData[companyId] || [];
+const CompanyPrograms = ({ programs }: { programs: ProgramItem[] }) => {
+    const { props } = usePage();
+    const userRole = ((props as any).auth?.user?.rol || '').toLowerCase();
+    const canDownload = userRole === 'admin' || userRole === 'super-admin';
 
     return (
         <div className="bg-muted/50 p-4">
@@ -52,24 +55,66 @@ const CompanyPrograms = ({ companyId }) => {
                             {programs.length > 0 ? (
                                 programs.map((prog) => (
                                     <TableRow key={prog.id}>
-                                        <TableCell className="font-medium">{prog.programa}</TableCell>
-                                        <TableCell>
-                                             <Badge
-                                                variant={
-                                                    prog.status === 'Completado' ? 'default' :
-                                                    prog.status === 'En Progreso' ? 'outline' : 'destructive'
-                                                }
-                                            >
-                                                {prog.status}
-                                            </Badge>
+                                        <TableCell className="font-medium">{prog.nombre}</TableCell>
+                                        <TableCell className="space-x-2">
+                                            <Badge variant={prog.has_pdf ? 'default' : 'outline'}>{prog.has_pdf ? 'PDF' : 'Sin PDF'}</Badge>
+                                            <Badge variant={prog.has_docx ? 'default' : 'outline'}>{prog.has_docx ? 'DOCX' : 'Sin DOCX'}</Badge>
                                         </TableCell>
                                         <TableCell className="text-right space-x-2">
-                                            <Button variant="outline" size="sm">
-                                                <FileText className="mr-2 h-4 w-4" /> Ver PDF
-                                            </Button>
-                                            <Button variant="outline" size="sm">
-                                                <FileDown className="mr-2 h-4 w-4" /> Ver Word
-                                            </Button>
+                                            <TooltipProvider>
+                                                {prog.pdf_url ? (
+                                                    canDownload ? (
+                                                        <a href={prog.pdf_url} target="_blank" rel="noreferrer">
+                                                            <Button variant="outline" size="sm">
+                                                                <FileText className="mr-2 h-4 w-4" /> Ver PDF
+                                                            </Button>
+                                                        </a>
+                                                    ) : (
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <span>
+                                                                    <Button variant="outline" size="sm" disabled>
+                                                                        <FileText className="mr-2 h-4 w-4" /> Ver PDF
+                                                                    </Button>
+                                                                </span>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>
+                                                                <p>Solo administradores y analistas pueden descargar documentos</p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    )
+                                                ) : (
+                                                    <Button variant="outline" size="sm" disabled>
+                                                        <FileText className="mr-2 h-4 w-4" /> PDF no disponible
+                                                    </Button>
+                                                )}
+                                                {prog.docx_url ? (
+                                                    canDownload ? (
+                                                        <a href={prog.docx_url} target="_blank" rel="noreferrer">
+                                                            <Button variant="outline" size="sm">
+                                                                <FileDown className="mr-2 h-4 w-4" /> Ver Word
+                                                            </Button>
+                                                        </a>
+                                                    ) : (
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <span>
+                                                                    <Button variant="outline" size="sm" disabled>
+                                                                        <FileDown className="mr-2 h-4 w-4" /> Ver Word
+                                                                    </Button>
+                                                                </span>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>
+                                                                <p>Solo administradores y analistas pueden descargar documentos</p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    )
+                                                ) : (
+                                                    <Button variant="outline" size="sm" disabled>
+                                                        <FileDown className="mr-2 h-4 w-4" /> Word no disponible
+                                                    </Button>
+                                                )}
+                                            </TooltipProvider>
                                         </TableCell>
                                     </TableRow>
                                 ))
@@ -88,18 +133,19 @@ const CompanyPrograms = ({ companyId }) => {
     );
 };
 
-export default function CompanyDocuments() {
+export default function CompanyDocuments({ items }: { items: Item[] }) {
     const [nameFilter, setNameFilter] = useState('');
     const [emailFilter, setEmailFilter] = useState('');
     const [nitFilter, setNitFilter] = useState('');
     const [openCompanyId, setOpenCompanyId] = useState<number | null>(null);
 
-    const filteredCompanies = allCompanies.filter(
-        (company) =>
-            company.nombre.toLowerCase().includes(nameFilter.toLowerCase()) &&
-            company.correo.toLowerCase().includes(emailFilter.toLowerCase()) &&
-            company.nit_empresa.toLowerCase().includes(nitFilter.toLowerCase())
-    );
+    const filtered = useMemo(() => {
+        return (items || []).filter(({ company }) =>
+            (company.nombre || '').toLowerCase().includes(nameFilter.toLowerCase()) &&
+            (company.correo || '').toLowerCase().includes(emailFilter.toLowerCase()) &&
+            (company.nit_empresa || '').toLowerCase().includes(nitFilter.toLowerCase())
+        );
+    }, [items, nameFilter, emailFilter, nitFilter]);
 
     const toggleCompanyPrograms = (companyId: number) => {
         setOpenCompanyId(openCompanyId === companyId ? null : companyId);
@@ -129,14 +175,14 @@ export default function CompanyDocuments() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {filteredCompanies.map((company) => (
+                            {filtered.map(({ company, programs }) => (
                                 <Collapsible asChild key={company.id} open={openCompanyId === company.id} onOpenChange={() => toggleCompanyPrograms(company.id)}>
                                     <>
                                         <TableRow>
                                             <TableCell>
                                                 <Avatar>
-                                                    <AvatarImage src={company.logo} alt={company.nombre} />
-                                                    <AvatarFallback>{company.nombre.substring(0, 2)}</AvatarFallback>
+                                                    <AvatarImage src={company.logo || undefined} alt={company.nombre} />
+                                                    <AvatarFallback>{(company.nombre || 'NA').substring(0, 2)}</AvatarFallback>
                                                 </Avatar>
                                             </TableCell>
                                             <TableCell className="font-medium">{company.nombre}</TableCell>
@@ -154,7 +200,7 @@ export default function CompanyDocuments() {
                                         <TableRow className="p-0">
                                             <TableCell colSpan={5} className="p-0 border-0">
                                                 <CollapsibleContent>
-                                                    <CompanyPrograms companyId={company.id} />
+                                                    <CompanyPrograms programs={programs} />
                                                 </CollapsibleContent>
                                             </TableCell>
                                         </TableRow>

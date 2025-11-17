@@ -10,6 +10,9 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\MasterListController;
 use App\Http\Controllers\UserDocumentsController;
+use App\Http\Controllers\UserDocumentController;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 Route::redirect('/', '/login');
 
@@ -28,12 +31,43 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/programa/{programId}/annex/{annexId}/upload', [ProgramController::class, 'uploadAnnex'])->name('program.annex.upload');
     Route::delete('/programa/{programId}/annex/{annexId}/clear', [ProgramController::class, 'clearAnnexFiles'])->name('program.annex.clear');
     Route::delete('/programa/{programId}/annex/{annexId}/file/{submissionId}', [ProgramController::class, 'deleteAnnexFile'])->name('program.annex.file.delete');
-    // Servir archivos del disco público sin depender del symlink (útil en Windows/dev server)
+    
+    // Servir archivos del disco público con restricción de descarga
     Route::get('/public-storage/{path}', function (string $path) {
         // Seguridad básica: evitar path traversal
         if (str_contains($path, '..')) abort(400, 'Ruta inválida');
         if (!Storage::disk('public')->exists($path)) abort(404);
+        
         $absolute = Storage::disk('public')->path($path);
+        
+        // Verificar si es un documento de empresa (company-documents)
+        if (str_starts_with($path, 'company-documents/')) {
+            $user = Auth::user();
+            if (!$user) {
+                abort(401, 'No autorizado');
+            }
+            
+            $userRole = strtolower($user->rol ?? '');
+            $isAdminOrSuperAdmin = ($userRole === 'admin' || $userRole === 'super-admin');
+            
+            // Si es PDF y el usuario NO es admin/super-admin, permitir visualización pero no descarga
+            if (str_ends_with(strtolower($path), '.pdf') && !$isAdminOrSuperAdmin) {
+                // Servir el PDF para visualización en iframe (sin header de descarga)
+                return response()->file($absolute, [
+                    'Content-Type' => 'application/pdf',
+                    'Content-Disposition' => 'inline; filename="' . basename($path) . '"',
+                    // Evitar cachear PDFs viejos en algunos navegadores/iframes
+                    'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+                    'Pragma' => 'no-cache',
+                ]);
+            }
+            
+            // Para DOCX u otros archivos, solo admin/super-admin pueden acceder
+            if (!$isAdminOrSuperAdmin) {
+                abort(403, 'No tienes permisos para descargar este tipo de documento');
+            }
+        }
+        
         // Devolver el archivo con headers adecuados
         return response()->file($absolute);
     })->where('path', '.*')->name('public.storage');
@@ -50,6 +84,22 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/listado-maestro/config', [MasterListController::class, 'saveConfig'])->name('master.config');
         Route::get('/documentos-empresas', [UserDocumentsController::class, 'index'])->name('user.documents');
     });
+
+    // Documentos de usuario: listado y vista por programa (con preview PDF)
+    Route::get('/user/companies/{company}/documents', [UserDocumentController::class, 'index'])->name('user.company.documents');
+    Route::get('/user/companies/{company}/programs/{program}/document', [UserDocumentController::class, 'show'])->name('user.company.program.document');
+
+    // Enlace simple para usuarios finales: resuelve su primera empresa asignada
+    Route::get('/mis-documentos', function () {
+        $user = Auth::user();
+        if (!$user) abort(403);
+        $companyId = DB::table('company_user')->where('user_id', $user->id)->orderBy('company_id')->value('company_id');
+        if (!$companyId) {
+            // Si no tiene empresa, enviarlo a dashboard con aviso simple
+            return redirect()->route('dashboard');
+        }
+        return redirect()->route('user.company.documents', ['company' => $companyId]);
+    })->middleware(['role:usuario,user'])->name('user.my.documents');
 });
 // En routes/web.php
 Route::get('/check-zip', function () {
