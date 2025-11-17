@@ -1,13 +1,26 @@
-import ConfirmablePasswordController from '@/actions/App/Http/Controllers/Auth/ConfirmablePasswordController';
+import { FormEventHandler } from 'react';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AuthLayout from '@/layouts/auth-layout';
-import { Form, Head } from '@inertiajs/react';
+import { Head, useForm } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 
 export default function ConfirmPassword() {
+    const { data, setData, post, processing, errors, reset } = useForm({
+        password: '',
+    });
+
+    const submit: FormEventHandler = (e) => {
+        e.preventDefault();
+        post('/confirm-password', {
+            onFinish: () => {
+                reset('password');
+            },
+        });
+    };
+
     return (
         <AuthLayout
             title="Confirma tu contraseña"
@@ -15,25 +28,31 @@ export default function ConfirmPassword() {
         >
             <Head title="Confirmar contraseña" />
 
-            <Form {...ConfirmablePasswordController.store.form()} resetOnSuccess={['password']}>
-                {({ processing, errors }) => (
-                    <div className="space-y-6">
-                        <div className="grid gap-2">
-                            <Label htmlFor="password">Contraseña</Label>
-                            <Input id="password" type="password" name="password" placeholder="Contraseña" autoComplete="current-password" autoFocus />
+            <form onSubmit={submit}>
+                <div className="space-y-6">
+                    <div className="grid gap-2">
+                        <Label htmlFor="password">Contraseña</Label>
+                        <Input 
+                            id="password" 
+                            type="password" 
+                            value={data.password}
+                            onChange={(e) => setData('password', e.target.value)}
+                            placeholder="Contraseña" 
+                            autoComplete="current-password" 
+                            autoFocus 
+                        />
 
-                            <InputError message={errors.password} />
-                        </div>
-
-                        <div className="flex items-center">
-                            <Button className="w-full" disabled={processing}>
-                                {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
-                                Confirmar contraseña
-                            </Button>
-                        </div>
+                        <InputError message={errors.password} />
                     </div>
-                )}
-            </Form>
+
+                    <div className="flex items-center">
+                        <Button className="w-full" disabled={processing}>
+                            {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
+                            Confirmar contraseña
+                        </Button>
+                    </div>
+                </div>
+            </form>
         </AuthLayout>
     );
 }

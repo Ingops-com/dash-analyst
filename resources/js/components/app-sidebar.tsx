@@ -32,6 +32,7 @@ export function AppSidebar() {
     const isadmin = role === 'admin';
     const isAnalyst = role === 'analista';
     const isSuperadmin = role === 'super-admin';
+    const isUser = role === 'usuario' || role === 'user';
 
     const mainNavItems: NavItem[] = [
         {
@@ -45,6 +46,15 @@ export function AppSidebar() {
             icon: SettingsIcon,
         },
     ];
+
+    // Acceso para usuarios finales: Mis Documentos (usa resolución de compañía por backend)
+    if (isUser) {
+        mainNavItems.push({
+            title: 'Mis Documentos',
+            href: '/mis-documentos',
+            icon: FileText,
+        });
+    }
 
     if (isAnalyst || isadmin || isSuperadmin) {
         mainNavItems.push(

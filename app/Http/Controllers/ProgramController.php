@@ -1,7 +1,5 @@
 <?php
-
 namespace App\Http\Controllers;
-
 use Illuminate\Http\Request;
 use PhpOffice\PhpWord\TemplateProcessor;
 use PhpOffice\PhpWord\PhpWord;
@@ -19,6 +17,9 @@ use Inertia\Inertia;
 use App\Models\Company;
 use App\Services\DocumentHeaderService;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Str;
+use Dompdf\Dompdf;
+use Dompdf\Options;
 
 class ProgramController extends Controller
 {
@@ -92,8 +93,9 @@ class ProgramController extends Controller
         // Verificar el tipo de anexo
         $annex = Annex::findOrFail($annexId);
 
-        // Fallback: si llega content_text (JSON o form-data) y no viene archivo, tratar como texto
+        // Determinar el tipo de contenido a procesar
         $treatAsText = ($annex->content_type === 'text') || ($request->has('content_text') && !$request->hasFile('file'));
+        $treatAsTable = ($annex->content_type === 'table') || $request->has('table_data');
 
         Log::info('uploadAnnex called', [
             'program_id' => $programId,
@@ -101,10 +103,81 @@ class ProgramController extends Controller
             'annex_content_type' => $annex->content_type,
             'has_file' => $request->hasFile('file'),
             'has_content_text' => $request->has('content_text'),
+            'has_table_data' => $request->has('table_data'),
             'treat_as_text' => $treatAsText,
+            'treat_as_table' => $treatAsTable,
         ]);
 
-        if ($treatAsText) {
+        if ($treatAsTable) {
+            // Validar para anexos de tabla
+            try {
+                $validated = $request->validate([
+                    'company_id' => 'required|exists:companies,id',
+                    'table_data' => 'required|array|min:1',
+                    'table_data.*' => 'array',
+                ]);
+            } catch (ValidationException $ve) {
+                Log::warning('Validation failed for table annex', [
+                    'errors' => $ve->errors(),
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validación fallida',
+                    'errors' => $ve->errors(),
+                ], 422);
+            }
+
+            try {
+                // Buscar si ya existe una submission para este anexo
+                $submission = CompanyAnnexSubmission::where([
+                    'company_id' => $validated['company_id'],
+                    'program_id' => $programId,
+                    'annex_id' => $annexId,
+                ])->first();
+
+                // Convertir los datos de la tabla a JSON
+                $tableDataJson = json_encode($validated['table_data']);
+
+                if ($submission) {
+                    // Actualizar el contenido existente
+                    $submission->update([
+                        'content_text' => $tableDataJson,
+                        'status' => 'Pendiente',
+                        'submitted_by' => Auth::id(),
+                    ]);
+                } else {
+                    // Crear nueva submission
+                    $submission = CompanyAnnexSubmission::create([
+                        'company_id' => $validated['company_id'],
+                        'program_id' => $programId,
+                        'annex_id' => $annexId,
+                        'content_text' => $tableDataJson,
+                        'file_path' => null,
+                        'file_name' => null,
+                        'mime_type' => 'application/json',
+                        'file_size' => strlen($tableDataJson),
+                        'status' => 'Pendiente',
+                        'submitted_by' => Auth::id(),
+                    ]);
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Tabla guardada exitosamente',
+                    'submission' => [
+                        'id' => $submission->id,
+                        'table_data' => $validated['table_data'],
+                        'mime' => 'application/json',
+                    ],
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error saving table annex: ' . $e->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al guardar la tabla: ' . $e->getMessage(),
+                ], 500);
+            }
+        } elseif ($treatAsText) {
             // Validar para anexos de texto
             try {
                 $validated = $request->validate([
@@ -527,52 +600,109 @@ class ProgramController extends Controller
                 $tempImagePaths[] = $metaImagePath;
 
                 if ($annexInfo && $annexInfo->content_type === 'text') {
-                    // Para anexos de texto: generar imagen con metadata + contenido de texto
+                    // Para anexos de texto: SIEMPRE insertar como texto directo (NO como imagen)
                     try {
-                        // Obtener el contenido de texto de la primera submission
+                        // Obtener el contenido de texto
                         $textSubmission = $submissions->first();
-                        $htmlContent = $textSubmission?->content_text ?? '';
+                        $textContent = $textSubmission?->content_text ?? '';
                         
-                        if (!empty($htmlContent)) {
-                            // Convertir HTML a texto plano
-                            $textContent = $this->convertHtmlToText($htmlContent);
+                        Log::info("Procesando anexo de texto (inserción directa): {$annexInfo->nombre}");
+                        
+                        if (!empty($textContent)) {
+                            // Limpiar HTML y preparar texto
+                            $cleanText = html_entity_decode(strip_tags($textContent), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                            $cleanText = str_replace(["\r\n", "\r"], "\n", $cleanText);
+                            $cleanText = trim($cleanText);
                             
-                            // Generar imagen del texto
-                            $textImagePath = $this->renderTextAsImage($textContent);
-                            $tempImagePaths[] = $textImagePath;
+                            // Insertar texto directamente en el documento
+                            $templateProcessor->setValue($placeholder, $cleanText);
                             
-                            // Combinar metadata + texto en una sola imagen
-                            $combinedImagePath = $this->combineImagesVertically($metaImagePath, [$textImagePath]);
-                            $tempImagePaths[] = $combinedImagePath;
-                            
-                            // Crear copia única para evitar conflictos con imágenes de plantilla
-                            $uniquePath = $this->createUniqueImageCopy($combinedImagePath);
-                            $tempImagePaths[] = $uniquePath;
-                            
-                            $templateProcessor->setImageValue($placeholder, [
-                                'path' => $uniquePath,
-                                'width' => 500,
-                                'ratio' => true
-                            ]);
                             $placeholdersWithImage[$placeholder] = true;
-                            Log::info("Anexo de texto con metadata + contenido insertado: {$annexInfo->nombre}");
+                            Log::info("Anexo de texto insertado directamente (no como imagen): {$annexInfo->nombre}");
                         } else {
-                            // Sin contenido de texto, solo insertar metadata
+                            // Sin contenido
+                            $templateProcessor->setValue($placeholder, '(Sin contenido)');
+                            $placeholdersWithImage[$placeholder] = true;
+                        }
+                    } catch (\Throwable $e) {
+                        $templateProcessor->setValue($placeholder, '(Error en anexo de texto)');
+                        $placeholdersWithImage[$placeholder] = true;
+                        Log::warning("Error generando anexo de texto: {$annexInfo->nombre} -> {$e->getMessage()}");
+                    }
+                    continue;
+                }
+
+                if ($annexInfo && $annexInfo->content_type === 'table') {
+                    // Para anexos de tabla: generar imagen cuadrada completa (metadata + tabla)
+                    try {
+                        // Obtener los datos de la tabla
+                        $tableSubmission = $submissions->first();
+                        $tableDataJson = $tableSubmission?->content_text ?? '';
+                        
+                        if (!empty($tableDataJson) && !empty($annexInfo->table_columns)) {
+                            $tableData = json_decode($tableDataJson, true);
+                            
+                            if (is_array($tableData) && count($tableData) > 0) {
+                                // Generar imagen cuadrada completa con metadata + tabla
+                                $completeImagePath = $this->generateTableWithMetadataImage(
+                                    $tableData,
+                                    $annexInfo->table_columns,
+                                    $annexInfo->table_header_color ?? '#153366',
+                                    [
+                                        'nombre' => $annexInfo->nombre,
+                                        'codigo' => $annexInfo->codigo_anexo,
+                                        'descripcion' => $annexInfo->descripcion,
+                                        'uploaded_at' => $tableSubmission->updated_at?->format('Y-m-d H:i') ?? date('Y-m-d H:i')
+                                    ],
+                                    $companyData
+                                );
+                                $tempImagePaths[] = $completeImagePath;
+                                
+                                // Crear copia única
+                                $uniquePath = $this->createUniqueImageCopy($completeImagePath);
+                                $tempImagePaths[] = $uniquePath;
+                                
+                                // Insertar con tamaño exacto
+                                $templateProcessor->setImageValue($placeholder, [
+                                    'path' => $uniquePath,
+                                    'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
+                                    'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
+                                    'ratio' => false
+                                ]);
+                                $placeholdersWithImage[$placeholder] = true;
+                                Log::info("Anexo de tabla completo (metadata + datos) insertado: {$annexInfo->nombre}");
+                            } else {
+                                // Sin datos válidos, solo metadata
+                                $uniquePath = $this->createUniqueImageCopy($metaImagePath);
+                                $tempImagePaths[] = $uniquePath;
+                                
+                                $templateProcessor->setImageValue($placeholder, [
+                                    'path' => $uniquePath,
+                                    'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
+                                    'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
+                                    'ratio' => false
+                                ]);
+                                $placeholdersWithImage[$placeholder] = true;
+                                Log::info("Anexo de tabla sin datos válidos, solo metadata: {$annexInfo->nombre}");
+                            }
+                        } else {
+                            // Sin contenido, solo metadata
                             $uniquePath = $this->createUniqueImageCopy($metaImagePath);
                             $tempImagePaths[] = $uniquePath;
                             
                             $templateProcessor->setImageValue($placeholder, [
                                 'path' => $uniquePath,
-                                'width' => 500,
-                                'ratio' => true
+                                'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
+                                'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
+                                'ratio' => false
                             ]);
                             $placeholdersWithImage[$placeholder] = true;
-                            Log::info("Anexo de texto sin contenido, solo metadata insertada: {$annexInfo->nombre}");
+                            Log::info("Anexo de tabla sin contenido, solo metadata: {$annexInfo->nombre}");
                         }
                     } catch (\Throwable $e) {
-                        $templateProcessor->setValue($placeholder, '(Anexo de texto)');
+                        $templateProcessor->setValue($placeholder, '(Anexo de tabla)');
                         $placeholdersWithImage[$placeholder] = true;
-                        Log::warning("Fallback metadata texto en setValue: {$annexInfo->nombre} -> {$e->getMessage()}");
+                        Log::warning("Error generando anexo de tabla: {$annexInfo->nombre} -> {$e->getMessage()}");
                     }
                     continue;
                 }
@@ -593,61 +723,24 @@ class ProgramController extends Controller
                     }
                 }
 
-                if (!count($annexImages)) {
-                    // Sin imágenes del anexo: insertar solo metadata
-                    try {
-                        // Crear copia única para evitar conflictos con imágenes de plantilla
-                        $uniquePath = $this->createUniqueImageCopy($metaImagePath);
-                        $tempImagePaths[] = $uniquePath;
-                        
-                        $templateProcessor->setImageValue($placeholder, [
-                            'path' => $uniquePath,
-                            'width' => 500,
-                            'ratio' => true
-                        ]);
-                        $placeholdersWithImage[$placeholder] = true;
-                        Log::info("Anexo sin imágenes: solo metadata insertada para {$annexInfo?->nombre}");
-                    } catch (\Throwable $e) {
-                        $templateProcessor->setValue($placeholder, '(Anexo no proporcionado)');
-                        Log::warning("Error insertando metadata sola: {$e->getMessage()}");
-                    }
-                    continue;
-                }
-
-                // Combinar metadata + imágenes del anexo en un solo PNG vertical
+                // Para otros tipos de anexos (imágenes/archivos): solo insertar metadata (ya es cuadrada 2400x2400)
                 try {
-                    $combinedImagePath = $this->combineImagesVertically($metaImagePath, $annexImages);
-                    $tempImagePaths[] = $combinedImagePath;
-                    
                     // Crear copia única para evitar conflictos con imágenes de plantilla
-                    $uniquePath = $this->createUniqueImageCopy($combinedImagePath);
+                    $uniquePath = $this->createUniqueImageCopy($metaImagePath);
                     $tempImagePaths[] = $uniquePath;
                     
+                    // Insertar con tamaño fijo en cm (16.5cm = ancho completo sin combinar)
                     $templateProcessor->setImageValue($placeholder, [
                         'path' => $uniquePath,
-                        'width' => 500,
-                        'ratio' => true
+                        'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
+                        'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16.5),
+                        'ratio' => false // No ratio para mantener cuadrado exacto
                     ]);
                     $placeholdersWithImage[$placeholder] = true;
-                    Log::info("Anexo combinado (metadata + " . count($annexImages) . " imágenes) insertado: {$annexInfo?->nombre}");
+                    Log::info("Anexo (metadata cuadrada) insertado: {$annexInfo?->nombre}");
                 } catch (\Throwable $e) {
-                    // Fallback: intentar insertar solo metadata
-                    try {
-                        // Crear copia única para evitar conflictos con imágenes de plantilla
-                        $uniquePath = $this->createUniqueImageCopy($metaImagePath);
-                        $tempImagePaths[] = $uniquePath;
-                        
-                        $templateProcessor->setImageValue($placeholder, [
-                            'path' => $uniquePath,
-                            'width' => 500,
-                            'ratio' => true
-                        ]);
-                        $placeholdersWithImage[$placeholder] = true;
-                        Log::warning("Fallback a solo metadata para anexo {$annexInfo?->nombre}: {$e->getMessage()}");
-                    } catch (\Throwable $inner) {
-                        $templateProcessor->setValue($placeholder, '(Error inserción anexo)');
-                        Log::error("Error total insertando anexo {$annexInfo?->nombre}: {$inner->getMessage()}");
-                    }
+                    $templateProcessor->setValue($placeholder, '(Anexo no proporcionado)');
+                    Log::warning("Error insertando metadata: {$e->getMessage()}");
                 }
             }
 
@@ -663,52 +756,244 @@ class ProgramController extends Controller
 
             // Guardar el documento procesado temporalmente
             $templateProcessor->saveAs($finalDocxPath);
-
-            // ===== PRE-PROCESAR DOCX PARA ELIMINAR IMÁGENES WMF/EMF QUE ROMPEN PhpWord =====
-            $finalDocxPath = $this->sanitizeDocxImages($finalDocxPath);
-
-            // ===== AGREGAR HEADER PERSONALIZADO =====
-            // En algunos casos las plantillas incluyen imágenes WMF/EMF que el lector de PhpWord no soporta.
-            // Si ocurre, hacemos un fallback: entregamos el documento sin la inyección de header
-            // y avisamos en el log para que se reemplacen los WMF por PNG/JPG en la plantilla.
+            
+            // Establecer metadatos del DOCX (título/autor) para que el PDF herede un título correcto incluso con LibreOffice
             try {
-                $phpWord = \PhpOffice\PhpWord\IOFactory::load($finalDocxPath);
-                $headerService = new DocumentHeaderService();
+                $docTitle = trim(($companyData['nombre'] ?? 'Empresa') . ' - ' . ($programData['nombre'] ?? 'Programa'));
+                $docCreator = $companyData['nombre'] ?? 'Dash Analyst';
+                $this->setDocxCoreProperties($finalDocxPath, $docTitle, $docCreator);
+                Log::info('Metadatos DOCX actualizados (core.xml)');
+            } catch (\Throwable $metaEx) {
+                Log::warning('No se pudieron establecer metadatos en DOCX: ' . $metaEx->getMessage());
+            }
+            
+            // NO sanitizar el DOCX para mantener todos los estilos y formato original
+            // LibreOffice maneja correctamente las imágenes WMF/EMF
+            Log::info('DOCX procesado con todos los estilos originales preservados');
 
-                // Detectar anexo más recientemente actualizado para mostrarlo en header (si existe)
-                $recentSubmission = null;
-                if (isset($existingSubmissions) && $existingSubmissions->count()) {
-                    $recentSubmission = $existingSubmissions->sortByDesc('updated_at')->first();
+            // === Persistir el documento en una ruta controlada y generar PDF ===
+            try {
+                $disk = Storage::disk('public');
+                // Raíz por empresa/programa
+                $baseRoot = 'company-documents/company_' . $company->id . '/program_' . $program->id;
+                $historyDir = $baseRoot . '/history';
+                if (!$disk->exists($historyDir)) {
+                    $disk->makeDirectory($historyDir);
                 }
-                $annexHeaderData = null;
-                if ($recentSubmission) {
-                    $recentAnnex = Annex::find($recentSubmission->annex_id);
-                    if ($recentAnnex) {
-                        $annexHeaderData = [
-                            'name' => $recentAnnex->nombre,
-                            'code' => $recentAnnex->codigo_anexo,
-                            'uploaded_at' => $recentSubmission->updated_at ? $recentSubmission->updated_at->format('Y-m-d H:i') : null,
-                        ];
+
+                $safeCompany = Str::slug((string)($company->nombre ?? 'empresa')) ?: 'empresa';
+                $safeProgram = Str::slug((string)($program->codigo ?? $program->nombre ?? 'programa')) ?: 'programa';
+                $timestamp = date('Ymd_His');
+
+                // Archivos de historial con timestamp
+                $docxHistoryRel = $historyDir . '/' . $safeCompany . '_' . $safeProgram . '_' . $timestamp . '.docx';
+                $pdfHistoryRel = $historyDir . '/' . $safeCompany . '_' . $safeProgram . '_' . $timestamp . '.pdf';
+
+                // Archivos 'current'
+                $docxCurrentRel = $baseRoot . '/current.docx';
+                $pdfCurrentRel = $baseRoot . '/current.pdf';
+
+                // Guardar DOCX en historial y actualizar 'current.docx'
+                try {
+                    $docxContents = @file_get_contents($finalDocxPath);
+                    if ($docxContents !== false) {
+                        $disk->put($docxHistoryRel, $docxContents);
+                        $disk->put($docxCurrentRel, $docxContents);
+                        Log::info('DOCX guardado (historial y current)', ['history' => $docxHistoryRel, 'current' => $docxCurrentRel]);
+                    } else {
+                        Log::warning('No se pudo leer el DOCX temporal para persistirlo');
                     }
+                } catch (\Throwable $e) {
+                    Log::warning('Fallo al guardar DOCX en storage público: ' . $e->getMessage());
                 }
 
-                foreach ($phpWord->getSections() as $section) {
-                    $headerService->createCustomHeader($section, $companyData, $programData);
-                    $headerService->addFooterLogo($section, $companyData['logo_pie_de_pagina']);
+                // Generar PDF desde el DOCX usando Microsoft Word (COM) si está disponible en Windows
+                try {
+                    Log::info('Iniciando conversión de DOCX a PDF', ['docx_path' => $finalDocxPath]);
+                    
+                    $pdfGenerated = false;
+                    // Usar directorio temp del storage en lugar de sys_get_temp_dir()
+                    $tempStorageDir = storage_path('app/temp');
+                    if (!File::isDirectory($tempStorageDir)) {
+                        File::makeDirectory($tempStorageDir, 0755, true);
+                    }
+                    // Normalizar la ruta para Windows (usar backslashes)
+                    $tempStorageDir = str_replace('/', '\\', $tempStorageDir);
+                    $tempPdfPath = $tempStorageDir . '\\temp_pdf_' . uniqid() . '.pdf';
+
+                    // 1) Preferir Microsoft Word COM en Windows para máxima fidelidad de estilos
+                    $docxAbsPath = realpath($finalDocxPath);
+                    if (!$docxAbsPath) {
+                        throw new \RuntimeException('No se pudo obtener ruta absoluta del DOCX');
+                    }
+
+                    $usedEngine = null;
+                    if ($this->hasMsWordCom()) {
+                        try {
+                            $title = trim(($company->nombre ?? 'Empresa') . ' - ' . ($program->nombre ?? 'Programa'));
+                            $this->convertDocxToPdfWithMsWord($docxAbsPath, $tempPdfPath, $title, $company->nombre ?? null);
+                            if (file_exists($tempPdfPath) && filesize($tempPdfPath) > 1024) {
+                                $pdfGenerated = true;
+                                $usedEngine = 'MsWord';
+                                Log::info('PDF exportado con Microsoft Word COM', ['pdf_path' => $tempPdfPath, 'size_kb' => round(filesize($tempPdfPath)/1024,2)]);
+                            } else {
+                                Log::warning('Microsoft Word COM no generó un PDF válido, se intentará LibreOffice');
+                            }
+                        } catch (\Throwable $mw) {
+                            Log::warning('Fallo conversión con Microsoft Word COM: ' . $mw->getMessage());
+                        }
+                    }
+
+                    // 2) Usar endpoint HTTP para conversión DOCX → PDF (rápido y fiel a estilos)
+                    if (!$pdfGenerated) {
+                        try {
+                            Log::info('Convirtiendo a PDF con endpoint HTTP...');
+                            
+                            Log::info('Ruta DOCX absoluta: ' . $docxAbsPath);
+                            Log::info('Directorio de salida: ' . $tempStorageDir);
+                            
+                            $httpOutputPath = $this->convertDocxToPdfWithLibreOffice($docxAbsPath, $tempStorageDir);
+
+                            if (!empty($httpOutputPath) && file_exists($httpOutputPath) && @filesize($httpOutputPath) > 1024) {
+                                // Mover a tempPdfPath para guardado unificado
+                                if (@rename($httpOutputPath, $tempPdfPath) || @copy($httpOutputPath, $tempPdfPath)) {
+                                    if ($httpOutputPath !== $tempPdfPath) { @unlink($httpOutputPath); }
+                                    $pdfGenerated = true;
+                                    $usedEngine = 'HTTP-Endpoint';
+                                    Log::info('PDF generado exitosamente con endpoint HTTP', ['pdf_path' => $tempPdfPath, 'size_kb' => round(filesize($tempPdfPath)/1024, 2)]);
+                                } else {
+                                    Log::error('No se pudo mover el PDF generado por endpoint HTTP', ['from' => $httpOutputPath, 'to' => $tempPdfPath]);
+                                }
+                            } else {
+                                Log::warning('Endpoint HTTP no devolvió un PDF válido');
+                            }
+                        } catch (\Throwable $httpErr) {
+                            Log::error('Conversión con endpoint HTTP falló: ' . $httpErr->getMessage());
+                            Log::error('Stack trace: ' . $httpErr->getTraceAsString());
+                        }
+                    }
+                    
+                    // Si no se generó aún, probar último recurso: DOCX -> HTML -> PDF (baja fidelidad)
+                    if (!$pdfGenerated) {
+                        try {
+                            Log::info('Intentando fallback HTML->PDF con PhpWord + Dompdf (baja fidelidad)');
+                            // Saneamos el DOCX para remover imágenes WMF/EMF que PhpWord no soporta
+                            $docxForFallback = $this->sanitizeDocxImages($finalDocxPath);
+                            if ($docxForFallback !== $finalDocxPath) {
+                                Log::info('Usando DOCX saneado para fallback (WMF/EMF removidos)', ['path' => $docxForFallback]);
+                            }
+                            $phpWordDoc = \PhpOffice\PhpWord\IOFactory::load($docxForFallback, 'Word2007');
+                            $htmlWriter = \PhpOffice\PhpWord\IOFactory::createWriter($phpWordDoc, 'HTML');
+                            $tempHtml = $tempStorageDir . '\\temp_doc_' . uniqid() . '.html';
+                            $htmlWriter->save($tempHtml);
+                            $html = @file_get_contents($tempHtml);
+                            if ($html !== false && strlen($html) > 0) {
+                                // Inyectar un CSS mínimo para mejorar tipografía/tablas en el fallback
+                                $fallbackCss = "<style>body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#000;} h1,h2,h3{font-weight:bold;} p{margin:0 0 8px 0;} table{border-collapse:collapse; width:100%;} td,th{border:1px solid #000; padding:4px; vertical-align:top;} img{max-width:100%;}</style>";
+                                if (stripos($html, '<head>') !== false) {
+                                    $html = preg_replace('/<head>/i', '<head>' . $fallbackCss, $html, 1);
+                                } else {
+                                    $html = $fallbackCss . $html;
+                                }
+                                $dompdfOptions = new Options();
+                                $dompdfOptions->set('isRemoteEnabled', true);
+                                $dompdfOptions->set('isHtml5ParserEnabled', true);
+                                $dompdfOptions->set('defaultFont', 'Arial');
+                                $dompdfOptions->set('isFontSubsettingEnabled', true);
+                                $dompdf = new Dompdf($dompdfOptions);
+                                $dompdf->loadHtml($html);
+                                $dompdf->setPaper('A4', 'portrait');
+                                $dompdf->render();
+                                $pdfData = $dompdf->output();
+                                if ($pdfData && strlen($pdfData) > 1024) {
+                                    $disk->put($pdfHistoryRel, $pdfData);
+                                    $disk->put($pdfCurrentRel, $pdfData);
+                                    $pdfGenerated = true;
+                                    $usedEngine = 'HTML-Dompdf';
+                                    Log::info('PDF guardado exitosamente (fallback HTML->PDF)', [
+                                        'history' => $pdfHistoryRel,
+                                        'current' => $pdfCurrentRel,
+                                        'size_kb' => round(strlen($pdfData) / 1024, 2),
+                                        'engine' => $usedEngine,
+                                    ]);
+                                } else {
+                                    Log::warning('Fallback HTML->PDF produjo salida vacía o demasiado pequeña');
+                                }
+                            } else {
+                                Log::warning('No se pudo generar HTML desde DOCX en fallback');
+                            }
+                            @unlink($tempHtml ?? '');
+                        } catch (\Throwable $h) {
+                            Log::warning('Fallback HTML->PDF falló: ' . $h->getMessage());
+                        }
+                    }
+
+                    // Guardar PDF en storage si se generó exitosamente (para motores que escriben a tempPdfPath)
+                    if ($pdfGenerated) {
+                        if ($usedEngine === 'MsWord' || $usedEngine === 'HTTP-Endpoint') {
+                            if (file_exists($tempPdfPath)) {
+                                $pdfContents = @file_get_contents($tempPdfPath);
+                                if ($pdfContents !== false && strlen($pdfContents) > 0) {
+                                    $disk->put($pdfHistoryRel, $pdfContents);
+                                    $disk->put($pdfCurrentRel, $pdfContents);
+                                    Log::info('PDF guardado exitosamente', [
+                                        'history' => $pdfHistoryRel,
+                                        'current' => $pdfCurrentRel,
+                                        'size_bytes' => strlen($pdfContents),
+                                        'size_kb' => round(strlen($pdfContents) / 1024, 2),
+                                        'engine' => $usedEngine,
+                                    ]);
+                                } else {
+                                    Log::warning('El PDF generado está vacío o no se pudo leer');
+                                }
+                            } else {
+                                Log::warning('Se indicó PDF generado pero no existe el archivo temporal esperado', ['engine' => $usedEngine, 'temp' => $tempPdfPath]);
+                            }
+                        } else {
+                            // HTML-Dompdf ya guardó directo en storage
+                            Log::info('PDF generado y guardado por fallback HTML->PDF');
+                        }
+                    } else {
+                        Log::info('PDF no generado. El documento DOCX está disponible para descarga.');
+                    }
+                    
+                    // Limpiar archivo temporal
+                    @unlink($tempPdfPath);
+                    
+                } catch (\Throwable $e) {
+                    Log::error('Error al generar PDF desde DOCX', [
+                        'error' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine()
+                    ]);
+                    Log::error('Stack trace: ' . $e->getTraceAsString());
                 }
 
-                // Agregar tabla de reemplazo de anexo en el cuerpo si hubo un anexo reciente
-                if ($annexHeaderData) {
-                    $this->addAnnexReplacementTable($phpWord, $companyData, $annexHeaderData);
+                // Rotación: mantener solo los últimos 3 DOCX/PDF en el historial
+                try {
+                    $allDocx = collect($disk->files($historyDir))
+                        ->filter(fn($p) => str_ends_with(strtolower($p), '.docx'))
+                        ->map(fn($p) => ['path' => $p, 'mtime' => @filemtime($disk->path($p)) ?: 0])
+                        ->sortByDesc('mtime')
+                        ->values();
+                    if ($allDocx->count() > 3) {
+                        $toDelete = $allDocx->slice(3)->all();
+                        foreach ($toDelete as $f) {
+                            try { $disk->delete($f['path']); } catch (\Throwable $ex) {}
+                            // eliminar PDF hermano si existe
+                            $pdfPair = preg_replace('/\.docx$/i', '.pdf', $f['path']);
+                            if ($pdfPair && $disk->exists($pdfPair)) { try { $disk->delete($pdfPair); } catch (\Throwable $ex) {} }
+                        }
+                        Log::info('Rotación de historial completada', ['eliminados' => array_map(fn($x) => $x['path'], $toDelete)]);
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('Error durante la rotación de historial: ' . $e->getMessage());
                 }
-
-                $objWriter = \PhpOffice\PhpWord\IOFactory::createWriter($phpWord, 'Word2007');
-                $objWriter->save($finalDocxPath);
-            } catch (\Throwable $tex) {
-                Log::warning('Header injection skipped due to template image format issue: ' . $tex->getMessage());
-                // Nota: Para habilitar el header, reemplace imágenes WMF/EMF de la plantilla por PNG/JPG.
+            } catch (\Throwable $e) {
+                Log::warning('Persistencia de documentos omitida por error: ' . $e->getMessage());
             }
 
+            // Entregar el archivo DOCX generado al usuario (manteniendo la descarga actual)
             return response()->download($finalDocxPath, 'Plan-Generado.docx')->deleteFileAfterSend(true);
 
         } catch (\Exception $e) {
@@ -737,6 +1022,220 @@ class ProgramController extends Controller
     }
 
     /**
+     * Verificar si LibreOffice está disponible en el sistema
+     */
+    private function hasLibreOffice(): bool
+    {
+        try {
+            if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+                // Windows: buscar en rutas comunes
+                $paths = [
+                    'C:\Program Files\LibreOffice\program\soffice.exe',
+                    'C:\Program Files (x86)\LibreOffice\program\soffice.exe',
+                ];
+                foreach ($paths as $path) {
+                    if (file_exists($path)) {
+                        return true;
+                    }
+                }
+                return false;
+            } else {
+                // Linux/Mac: verificar con which
+                exec('which soffice', $output, $returnVar);
+                return $returnVar === 0;
+            }
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Verificar si está disponible Microsoft Word vía COM (Windows)
+     */
+    private function hasMsWordCom(): bool
+    {
+        try {
+            if (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
+                return false;
+            }
+            if (!class_exists('COM')) {
+                return false;
+            }
+            // Intentar crear instancia de Word sin mantenerla viva
+            try {
+                $word = new \COM('Word.Application');
+                if ($word) {
+                    // Cerrar inmediatamente
+                    $word->Quit(false);
+                    unset($word);
+                    return true;
+                }
+            } catch (\Throwable $e) {
+                return false;
+            }
+            return false;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Convertir DOCX a PDF usando endpoint HTTP de conversión
+     */
+    private function convertDocxToPdfWithLibreOffice(string $docxPath, string $outputDir): ?string
+    {
+        if (!file_exists($docxPath)) {
+            throw new \RuntimeException("DOCX no existe: {$docxPath}");
+        }
+
+        if (!is_dir($outputDir)) {
+            throw new \RuntimeException("Directorio de salida no existe: {$outputDir}");
+        }
+
+        $conversionEndpoint = 'http://178.16.141.125:5050/convert';
+        
+        Log::info('Convirtiendo DOCX a PDF usando endpoint HTTP', [
+            'endpoint' => $conversionEndpoint,
+            'docx' => $docxPath
+        ]);
+
+        $startTime = microtime(true);
+
+        try {
+            // Crear cliente HTTP con Guzzle
+            $client = new \GuzzleHttp\Client([
+                'timeout' => 120, // 2 minutos timeout
+                'verify' => false, // Deshabilitar verificación SSL si es necesario
+            ]);
+
+            // Preparar multipart/form-data con el archivo DOCX
+            $response = $client->post($conversionEndpoint, [
+                'multipart' => [
+                    [
+                        'name' => 'file',
+                        'contents' => fopen($docxPath, 'r'),
+                        'filename' => basename($docxPath),
+                    ]
+                ]
+            ]);
+
+            $execTime = round(microtime(true) - $startTime, 2);
+
+            if ($response->getStatusCode() !== 200) {
+                throw new \RuntimeException('Endpoint de conversión retornó código ' . $response->getStatusCode());
+            }
+
+            // Guardar el PDF recibido
+            $pdfContent = $response->getBody()->getContents();
+            
+            if (empty($pdfContent) || strlen($pdfContent) < 1024) {
+                throw new \RuntimeException('El PDF recibido está vacío o es demasiado pequeño');
+            }
+
+            $expectedPdfName = pathinfo($docxPath, PATHINFO_FILENAME) . '.pdf';
+            $expectedPdfPath = rtrim($outputDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $expectedPdfName;
+            
+            file_put_contents($expectedPdfPath, $pdfContent);
+
+            if (file_exists($expectedPdfPath) && @filesize($expectedPdfPath) > 1024) {
+                Log::info('PDF generado exitosamente vía endpoint HTTP', [
+                    'path' => $expectedPdfPath,
+                    'size_kb' => round(filesize($expectedPdfPath)/1024, 2),
+                    'time_seconds' => $execTime
+                ]);
+                return $expectedPdfPath;
+            } else {
+                throw new \RuntimeException('No se pudo guardar el PDF en el disco');
+            }
+
+        } catch (\GuzzleHttp\Exception\RequestException $e) {
+            $execTime = round(microtime(true) - $startTime, 2);
+            Log::error('Error al conectar con endpoint de conversión', [
+                'endpoint' => $conversionEndpoint,
+                'error' => $e->getMessage(),
+                'time_seconds' => $execTime
+            ]);
+            throw new \RuntimeException('Fallo en conversión HTTP: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            $execTime = round(microtime(true) - $startTime, 2);
+            Log::error('Error inesperado al convertir DOCX a PDF', [
+                'error' => $e->getMessage(),
+                'time_seconds' => $execTime
+            ]);
+            throw $e;
+        }
+
+        return null;
+    }
+
+    /**
+     * Convertir DOCX a PDF usando Microsoft Word (COM Automation) en Windows.
+     * Requiere: PHP COM habilitado y MS Word instalado en el host.
+     */
+    private function convertDocxToPdfWithMsWord(string $docxPath, string $outputPdfPath, ?string $title = null, ?string $companyName = null): void
+    {
+        if (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
+            throw new \RuntimeException('MS Word COM solo está disponible en Windows');
+        }
+        if (!file_exists($docxPath)) {
+            throw new \RuntimeException("DOCX no existe: {$docxPath}");
+        }
+        if (!class_exists('COM')) {
+            throw new \RuntimeException('Extensión COM de PHP no disponible');
+        }
+
+        Log::info('Intentando exportación a PDF con Microsoft Word COM', [
+            'docx' => $docxPath,
+            'pdf' => $outputPdfPath,
+        ]);
+
+        $word = null;
+        $doc = null;
+        try {
+            $word = new \COM('Word.Application');
+            $word->Visible = 0;
+            // Desactivar alertas/modal
+            $word->DisplayAlerts = 0;
+
+            // Abrir documento
+            // Parámetros: FileName, ConfirmConversions, ReadOnly, AddToRecentFiles, PasswordDocument, PasswordTemplate, Revert, WritePasswordDocument, WritePasswordTemplate, Format, Encoding, Visible, OpenAndRepair, DocumentDirection, NoEncodingDialog
+            $doc = $word->Documents->Open($docxPath, false, false);
+
+            // Actualizar propiedades opcionalmente para que el PDF no muestre "PHPWord"
+            try {
+                if ($title) {
+                    $doc->BuiltInDocumentProperties('Title')->Value = $title;
+                }
+                if ($companyName) {
+                    $doc->BuiltInDocumentProperties('Company')->Value = $companyName;
+                }
+            } catch (\Throwable $p) {
+                // Ignorar si no se pueden establecer
+            }
+
+            $wdExportFormatPDF = 17; // WdExportFormat.wdExportFormatPDF
+            // ExportAsFixedFormat(OutputFileName, ExportFormat, OpenAfterExport, OptimizeFor, Range, From, To, Item, IncludeDocProps, KeepIRM, CreateBookmarks, DocStructureTags, BitmapMissingFonts, UseISO19005_1)
+            $doc->ExportAsFixedFormat($outputPdfPath, $wdExportFormatPDF, false);
+
+            // Cerrar y salir
+            $doc->Close(false);
+            $doc = null;
+            $word->Quit(false);
+            $word = null;
+
+            if (!file_exists($outputPdfPath) || (int)@filesize($outputPdfPath) <= 0) {
+                throw new \RuntimeException('MS Word no generó el PDF esperado');
+            }
+        } catch (\Throwable $e) {
+            // Intentar limpiar recursos si algo quedó abierto
+            try { if ($doc) { $doc->Close(false); } } catch (\Throwable $x) {}
+            try { if ($word) { $word->Quit(false); } } catch (\Throwable $x) {}
+            $doc = null; $word = null;
+            throw $e;
+        }
+    }
+
+    /**
      * Eliminar imágenes WMF/EMF del DOCX para evitar errores "Invalid image" al cargar con PhpWord.
      * Crea una copia limpia del archivo si se modificó algo.
      *
@@ -746,43 +1245,181 @@ class ProgramController extends Controller
     private function sanitizeDocxImages(string $docxPath): string
     {
         if (!class_exists(\ZipArchive::class)) {
-            return $docxPath; // Sin soporte Zip, no podemos sanear
+            return $docxPath;
         }
+        
         $zip = new \ZipArchive();
         if ($zip->open($docxPath) !== true) {
-            return $docxPath; // No se pudo abrir
+            return $docxPath;
         }
+        
+        // Buscar imágenes WMF/EMF a eliminar
         $filesToRemove = [];
+        $imageRels = []; // Guardar IDs de relaciones a eliminar
+        
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $stat = $zip->statIndex($i);
             if (!$stat || empty($stat['name'])) continue;
             $name = $stat['name'];
-            // Remover imágenes WMF/EMF
-            if (preg_match('/word\/media\/image\\d+\.(wmf|emf)$/i', $name)) {
+            
+            if (preg_match('/word\/media\/(image\\d+)\.(wmf|emf)$/i', $name, $matches)) {
                 $filesToRemove[] = $name;
+                $imageRels[] = $matches[1]; // Guardar nombre base de la imagen (ej: image26)
             }
         }
-
+        
         if (!count($filesToRemove)) {
             $zip->close();
-            return $docxPath; // Nada que eliminar
+            return $docxPath;
         }
-
-        // Crear copia temporal para modificar (evitar corrupción si falla)
+        
+        // Crear copia sanitizada
         $sanitizedPath = preg_replace('/\.docx$/', '_sanitized.docx', $docxPath);
         copy($docxPath, $sanitizedPath);
         $zip->close();
-
-        // Reabrir copia y eliminar
-        if ($zip->open($sanitizedPath) === true) {
+        
+        // Reabrir y modificar
+        if ($zip->open($sanitizedPath) !== true) {
+            return $docxPath;
+        }
+        
+        try {
+            // 1. Eliminar archivos de imagen WMF/EMF del ZIP
             foreach ($filesToRemove as $f) {
                 $zip->deleteName($f);
             }
+            
+            // 2. Limpiar [Content_Types].xml - eliminar referencias a WMF/EMF
+            $contentTypesXml = $zip->getFromName('[Content_Types].xml');
+            if ($contentTypesXml !== false) {
+                $dom = new \DOMDocument();
+                $dom->loadXML($contentTypesXml);
+                $xpath = new \DOMXPath($dom);
+                $xpath->registerNamespace('ct', 'http://schemas.openxmlformats.org/package/2006/content-types');
+                
+                // Eliminar Override entries para archivos WMF/EMF
+                foreach ($filesToRemove as $file) {
+                    $partName = '/' . $file;
+                    $overrides = $xpath->query("//ct:Override[@PartName='$partName']");
+                    foreach ($overrides as $override) {
+                        $override->parentNode->removeChild($override);
+                    }
+                }
+                
+                $zip->addFromString('[Content_Types].xml', $dom->saveXML());
+            }
+            
+            // 3. Limpiar document.xml - eliminar nodos <w:drawing> que referencian WMF/EMF
+            $documentXml = $zip->getFromName('word/document.xml');
+            if ($documentXml !== false) {
+                $dom = new \DOMDocument();
+                @$dom->loadXML($documentXml);
+                $xpath = new \DOMXPath($dom);
+                
+                // Registrar namespaces comunes de Word
+                $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
+                $xpath->registerNamespace('a', 'http://schemas.openxmlformats.org/drawingml/2006/main');
+                $xpath->registerNamespace('wp', 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing');
+                $xpath->registerNamespace('pic', 'http://schemas.openxmlformats.org/drawingml/2006/picture');
+                
+                // Buscar y eliminar todos los w:drawing que contienen referencias a las imágenes eliminadas
+                foreach ($imageRels as $imageName) {
+                    // Buscar w:drawing que contengan referencias a esta imagen
+                    $drawings = $xpath->query("//w:drawing[.//a:blip[contains(@r:embed, 'rId') or contains(@r:link, 'rId')]]");
+                    
+                    foreach ($drawings as $drawing) {
+                        // Verificar si este drawing referencia la imagen eliminada buscando en su XML
+                        $drawingXml = $dom->saveXML($drawing);
+                        if (strpos($drawingXml, $imageName) !== false) {
+                            // Eliminar el párrafo completo que contiene el drawing
+                            $parent = $drawing->parentNode;
+                            if ($parent && $parent->nodeName === 'w:r') {
+                                // El drawing está dentro de un run, eliminar el run completo
+                                $run = $parent;
+                                $paragraph = $run->parentNode;
+                                if ($paragraph) {
+                                    $paragraph->removeChild($run);
+                                    // Si el párrafo quedó vacío, eliminarlo también
+                                    if (!$paragraph->hasChildNodes() || $paragraph->childNodes->length === 0) {
+                                        if ($paragraph->parentNode) {
+                                            $paragraph->parentNode->removeChild($paragraph);
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Eliminar el drawing directamente
+                                $parent->removeChild($drawing);
+                            }
+                        }
+                    }
+                }
+                
+                $zip->addFromString('word/document.xml', $dom->saveXML());
+            }
+            
+            // 4. Limpiar document.xml.rels - eliminar relaciones a archivos WMF/EMF
+            $relsXml = $zip->getFromName('word/_rels/document.xml.rels');
+            if ($relsXml !== false) {
+                $dom = new \DOMDocument();
+                @$dom->loadXML($relsXml);
+                $xpath = new \DOMXPath($dom);
+                $xpath->registerNamespace('r', 'http://schemas.openxmlformats.org/package/2006/relationships');
+                
+                foreach ($imageRels as $imageName) {
+                    // Buscar relaciones que apuntan a archivos WMF/EMF con este nombre base
+                    $relationships = $xpath->query("//r:Relationship[contains(@Target, '$imageName.wmf') or contains(@Target, '$imageName.emf') or contains(@Target, '$imageName')]");
+                    foreach ($relationships as $rel) {
+                        $parent = $rel->parentNode;
+                        if ($parent) {
+                            $parent->removeChild($rel);
+                        }
+                    }
+                }
+                
+                $zip->addFromString('word/_rels/document.xml.rels', $dom->saveXML());
+            }
+            
+            // 5. Limpiar también header/footer rels si existen
+            for ($i = 1; $i <= 3; $i++) {
+                foreach (['header', 'footer'] as $type) {
+                    $headerFooterRels = "word/_rels/{$type}{$i}.xml.rels";
+                    $relsXml = $zip->getFromName($headerFooterRels);
+                    if ($relsXml !== false) {
+                        $dom = new \DOMDocument();
+                        @$dom->loadXML($relsXml);
+                        $xpath = new \DOMXPath($dom);
+                        $xpath->registerNamespace('r', 'http://schemas.openxmlformats.org/package/2006/relationships');
+                        
+                        $modified = false;
+                        foreach ($imageRels as $imageName) {
+                            $relationships = $xpath->query("//r:Relationship[contains(@Target, '$imageName.wmf') or contains(@Target, '$imageName.emf') or contains(@Target, '$imageName')]");
+                            foreach ($relationships as $rel) {
+                                $parent = $rel->parentNode;
+                                if ($parent) {
+                                    $parent->removeChild($rel);
+                                    $modified = true;
+                                }
+                            }
+                        }
+                        
+                        if ($modified) {
+                            $zip->addFromString($headerFooterRels, $dom->saveXML());
+                        }
+                    }
+                }
+            }
+            
             $zip->close();
-            \Illuminate\Support\Facades\Log::warning('Sanitized DOCX removed unsupported images', ['removed' => $filesToRemove]);
+            Log::warning('Sanitized DOCX: removed WMF/EMF images and all references', [
+                'removed_files' => $filesToRemove,
+                'image_rels' => $imageRels
+            ]);
             return $sanitizedPath;
-        } else {
-            return $docxPath; // Fallback
+            
+        } catch (\Throwable $e) {
+            $zip->close();
+            Log::error('Error sanitizing DOCX: ' . $e->getMessage());
+            return $docxPath;
         }
     }
 
@@ -881,9 +1518,9 @@ class ProgramController extends Controller
             File::makeDirectory($tempDir, 0755, true);
         }
 
-        // Dimensiones base (estructura de 3 columnas) - AUMENTADAS para mejor legibilidad
+        // Dimensiones CUADRADAS - mismo ancho y alto
         $width = 2400; 
-        $height = 450;
+        $height = 2400; // Ahora es cuadrado
         $borderThick = 4;
         
         $im = imagecreatetruecolor($width, $height);
@@ -968,7 +1605,7 @@ class ProgramController extends Controller
         // === COLUMNA 1: LOGO IZQUIERDO ===
         $leftLogo = $loadImage($companyData['logo_izquierdo'] ?? null);
         if ($leftLogo) {
-            $drawScaled($im, $leftLogo, $col1X + 10, 10, $col1W - 20, $height - 20);
+            $drawScaled($im, $leftLogo, $col1X + 20, 20, $col1W - 40, $height - 40);
             imagedestroy($leftLogo);
         }
 
@@ -977,8 +1614,8 @@ class ProgramController extends Controller
         
         $title = strtoupper($annexHeaderData['name'] ?? 'ANEXO');
         if ($useTTF) {
-            $titleFontSize = 36;
-            $titleY = (int)($height / 2 + 12); // Ajuste vertical para baseline TTF
+            $titleFontSize = 48; // Aumentado para el formato cuadrado
+            $titleY = (int)($height / 2 + 18); // Ajuste vertical para baseline TTF
             $drawTextCenteredTTF($im, $title, $col2X, $titleY, $col2W, $titleFontSize, $white, $fontPath);
         } else {
             $fontTitle = 5;
@@ -997,12 +1634,12 @@ class ProgramController extends Controller
         }
         
         // FILA 1: "Versión" + número
-        $row1Y = 15;
+        $row1Y = 180; // Ajustado para formato cuadrado
         $versionLabel = "Version";
         $versionValue = $companyData['version'] ?? '1';
         if ($useTTF) {
-            $drawTextCenteredTTF($im, $versionLabel, $col3X, $row1Y + 28, $col3W, 20, $black, $fontPath);
-            $drawTextCenteredTTF($im, $versionValue, $col3X, $row1Y + 75, $col3W, 26, $black, $fontPath);
+            $drawTextCenteredTTF($im, $versionLabel, $col3X, $row1Y + 28, $col3W, 28, $black, $fontPath);
+            $drawTextCenteredTTF($im, $versionValue, $col3X, $row1Y + 100, $col3W, 36, $black, $fontPath);
         } else {
             $drawTextCentered($im, $versionLabel, $col3X, $row1Y, $col3W, 4, $black);
             $drawTextCentered($im, $versionValue, $col3X, $row1Y + 30, $col3W, 5, $black);
@@ -1012,12 +1649,12 @@ class ProgramController extends Controller
         $row2Y = $rowHeight;
         $rightLogo = $loadImage($companyData['logo_derecho'] ?? null);
         if ($rightLogo) {
-            $drawScaled($im, $rightLogo, $col3X + 15, $row2Y + 8, $col3W - 30, $rowHeight - 16);
+            $drawScaled($im, $rightLogo, $col3X + 30, $row2Y + 50, $col3W - 60, $rowHeight - 100);
             imagedestroy($rightLogo);
         }
 
         // FILA 3: "Fecha" + fecha formateada
-        $row3Y = $rowHeight * 2;
+        $row3Y = $rowHeight * 2 + 180; // Ajustado para formato cuadrado
         $fechaLabel = "Fecha";
         $fechaFmt = '';
         if (!empty($companyData['fecha_inicio'])) {
@@ -1028,21 +1665,21 @@ class ProgramController extends Controller
             $fechaFmt = substr($annexHeaderData['uploaded_at'], 0, 10);
         }
         if ($useTTF) {
-            $drawTextCenteredTTF($im, $fechaLabel, $col3X, $row3Y + 28, $col3W, 20, $black, $fontPath);
-            $drawTextCenteredTTF($im, $fechaFmt, $col3X, $row3Y + 75, $col3W, 22, $black, $fontPath);
+            $drawTextCenteredTTF($im, $fechaLabel, $col3X, $row3Y + 28, $col3W, 28, $black, $fontPath);
+            $drawTextCenteredTTF($im, $fechaFmt, $col3X, $row3Y + 100, $col3W, 32, $black, $fontPath);
         } else {
             $drawTextCentered($im, $fechaLabel, $col3X, $row3Y + 5, $col3W, 4, $black);
             $drawTextCentered($im, $fechaFmt, $col3X, $row3Y + 35, $col3W, 3, $black);
         }
 
         // FILA 4: "Código" (fondo azul marino) + código del anexo
-        $row4Y = $rowHeight * 3;
-        imagefilledrectangle($im, $col3X + 1, $row4Y + 1, $width - 2, $height - 2, $navyBlue);
+        $row4Y = $rowHeight * 3 + 180; // Ajustado para formato cuadrado
+        imagefilledrectangle($im, $col3X + 1, $row4Y - 180 + 1, $width - 2, $height - 2, $navyBlue);
         $codigoLabel = "Codigo";
         $codigoValue = $annexHeaderData['code'] ?? '';
         if ($useTTF) {
-            $drawTextCenteredTTF($im, $codigoLabel, $col3X, $row4Y + 28, $col3W, 20, $white, $fontPath);
-            $drawTextCenteredTTF($im, $codigoValue, $col3X, $row4Y + 75, $col3W, 22, $white, $fontPath);
+            $drawTextCenteredTTF($im, $codigoLabel, $col3X, $row4Y + 28, $col3W, 28, $white, $fontPath);
+            $drawTextCenteredTTF($im, $codigoValue, $col3X, $row4Y + 100, $col3W, 32, $white, $fontPath);
         } else {
             $drawTextCentered($im, $codigoLabel, $col3X, $row4Y + 5, $col3W, 4, $white);
             $drawTextCentered($im, $codigoValue, $col3X, $row4Y + 35, $col3W, 3, $white);
@@ -1244,19 +1881,20 @@ class ProgramController extends Controller
             File::makeDirectory($tempDir, 0755, true);
         }
 
-        // Dimensiones iniciales
-        $width = 2400; // Mismo ancho que la metadata para coherencia
-        $lineHeight = 35;
-        $padding = 40;
-        $fontSize = 4; // Fuente GD (o intentar TTF si está disponible)
+        // Dimensiones CUADRADAS - mismo ancho y alto
+        $width = 2400;
+        $height = 2400; // Ahora es cuadrado
+        $lineHeight = 45; // Aumentado para mejor legibilidad
+        $padding = 60;
+        $fontSize = 5; // Fuente GD
         
         // Intentar cargar fuente TrueType
         $fontPath = 'C:/Windows/Fonts/arial.ttf';
         $useTTF = file_exists($fontPath);
-        $ttfSize = 18;
+        $ttfSize = 24; // Aumentado de 18 a 24
 
         // Dividir texto en líneas (respetando saltos de línea y wrapping)
-        $maxCharsPerLine = $useTTF ? 120 : 150;
+        $maxCharsPerLine = $useTTF ? 90 : 110; // Ajustado para texto más grande
         $lines = [];
         $textLines = explode("\n", $text);
         
@@ -1270,10 +1908,14 @@ class ProgramController extends Controller
             $lines = array_merge($lines, explode("\n", $wrapped));
         }
 
-        // Calcular altura necesaria
-        $height = $padding * 2 + (count($lines) * $lineHeight);
+        // Limitar número de líneas para que quepa en el cuadrado
+        $maxLines = (int)(($height - ($padding * 2)) / $lineHeight);
+        if (count($lines) > $maxLines) {
+            $lines = array_slice($lines, 0, $maxLines);
+            $lines[] = '...'; // Indicador de texto truncado
+        }
         
-        // Crear imagen
+        // Crear imagen cuadrada
         $im = imagecreatetruecolor($width, $height);
         $white = imagecolorallocate($im, 255, 255, 255);
         $black = imagecolorallocate($im, 0, 0, 0);
@@ -1297,11 +1939,808 @@ class ProgramController extends Controller
         imagepng($im, $outPath);
         imagedestroy($im);
 
-        Log::info('Texto renderizado como imagen', ['path' => $outPath, 'lines' => count($lines)]);
+        Log::info('Texto renderizado como imagen cuadrada', ['path' => $outPath, 'lines' => count($lines)]);
         return $outPath;
     }
 
+    /**
+     * Renderiza una tabla de datos como imagen PNG
+     * 
+     * @param array $tableData Array de filas con columnas
+     * @param array $columns Nombres de las columnas
+     * @param string $headerColor Color hex de la cabecera (ej: '#153366')
+     * @return string Path a la imagen temporal generada
+     */
+    private function renderTableAsImage(array $tableData, array $columns, string $headerColor = '#153366'): string
+    {
+        $tempDir = storage_path('app/temp');
+        if (!File::isDirectory($tempDir)) {
+            File::makeDirectory($tempDir, 0755, true);
+        }
 
+        // Configuración - DIMENSIONES CUADRADAS
+        $totalWidth = 2400;
+        $totalHeight = 2400; // Ahora es cuadrado
+        
+        $cellPadding = 20;
+        $cellHeight = 60; // Aumentado de 40 a 60
+        $headerHeight = 70; // Aumentado de 50 a 70
+        $fontSize = 5;
+        
+        // Intentar cargar fuente TrueType
+        $fontPath = 'C:/Windows/Fonts/arial.ttf';
+        $useTTF = file_exists($fontPath);
+        $ttfSizeHeader = 28; // Aumentado de 20 a 28
+        $ttfSizeCell = 24; // Aumentado de 16 a 24
+
+        // Calcular ancho de columnas (distribuir equitativamente)
+        $colCount = count($columns);
+        $colWidth = $colCount > 0 ? floor($totalWidth / $colCount) : $totalWidth;
+
+        // Limitar filas para que quepan en el formato cuadrado
+        $rowCount = count($tableData);
+        $maxRows = (int)(($totalHeight - $headerHeight - 20) / $cellHeight); // -20 para padding
+        if ($rowCount > $maxRows) {
+            $tableData = array_slice($tableData, 0, $maxRows);
+            $rowCount = count($tableData);
+        }
+
+        // Crear imagen cuadrada
+        $im = imagecreatetruecolor($totalWidth, $totalHeight);
+        $white = imagecolorallocate($im, 255, 255, 255);
+        $borderColor = imagecolorallocate($im, 200, 200, 200);
+        $textDark = imagecolorallocate($im, 30, 30, 30);
+        $textWhite = imagecolorallocate($im, 255, 255, 255);
+        
+        // Parsear color de cabecera
+        $headerRGB = $this->hexToRgb($headerColor);
+        $headerBg = imagecolorallocate($im, $headerRGB['r'], $headerRGB['g'], $headerRGB['b']);
+        
+        // Fondo blanco
+        imagefilledrectangle($im, 0, 0, $totalWidth - 1, $totalHeight - 1, $white);
+
+        // Dibujar cabecera
+        imagefilledrectangle($im, 0, 0, $totalWidth - 1, $headerHeight, $headerBg);
+        
+        $x = 0;
+        foreach ($columns as $idx => $col) {
+            // Borde vertical entre columnas
+            if ($idx > 0) {
+                imageline($im, $x, 0, $x, $headerHeight, $borderColor);
+            }
+            
+            // Texto de la cabecera
+            $textX = $x + $cellPadding;
+            $textY = $useTTF ? ($headerHeight / 2) + 10 : ($headerHeight / 2) - 10;
+            
+            if ($useTTF) {
+                imagettftext($im, $ttfSizeHeader, 0, $textX, $textY, $textWhite, $fontPath, $col);
+            } else {
+                imagestring($im, $fontSize, $textX, $textY, $col, $textWhite);
+            }
+            
+            $x += $colWidth;
+        }
+
+        // Línea debajo de la cabecera
+        imageline($im, 0, $headerHeight, $totalWidth, $headerHeight, $borderColor);
+
+        // Dibujar filas de datos
+        $y = $headerHeight;
+        foreach ($tableData as $rowIdx => $row) {
+            $x = 0;
+            $y += $cellHeight;
+            
+            // Línea horizontal entre filas
+            imageline($im, 0, $y, $totalWidth, $y, $borderColor);
+            
+            foreach ($columns as $idx => $col) {
+                // Borde vertical
+                if ($idx > 0) {
+                    imageline($im, $x, $headerHeight, $x, $y, $borderColor);
+                }
+                
+                // Texto de la celda
+                $cellValue = $row[$col] ?? '-';
+                // Truncar si es muy largo
+                $maxChars = $useTTF ? 40 : 50; // Aumentado de 30/40 a 40/50
+                if (strlen($cellValue) > $maxChars) {
+                    $cellValue = substr($cellValue, 0, $maxChars - 3) . '...';
+                }
+                
+                $textX = $x + $cellPadding;
+                $textY = $useTTF ? ($y - $cellHeight / 2) + 9 : ($y - $cellHeight / 2) - 10; // Ajustado para nuevo tamaño
+                
+                if ($useTTF) {
+                    imagettftext($im, $ttfSizeCell, 0, $textX, $textY, $textDark, $fontPath, $cellValue);
+                } else {
+                    imagestring($im, $fontSize, $textX, $textY, $cellValue, $textDark);
+                }
+                
+                $x += $colWidth;
+            }
+        }
+
+        // Borde exterior
+        imagerectangle($im, 0, 0, $totalWidth - 1, $totalHeight - 1, $borderColor);
+
+        $outPath = $tempDir . '/' . uniqid('table_render_', true) . '.png';
+        imagepng($im, $outPath);
+        imagedestroy($im);
+
+        Log::info('Tabla renderizada como imagen cuadrada', ['path' => $outPath, 'rows' => $rowCount, 'cols' => $colCount, 'dimensions' => '2400x2400']);
+        return $outPath;
+    }
+
+    /**
+     * Convierte color hex a RGB
+     */
+    private function hexToRgb(string $hex): array
+    {
+        $hex = ltrim($hex, '#');
+        if (strlen($hex) === 3) {
+            $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+        }
+        return [
+            'r' => hexdec(substr($hex, 0, 2)),
+            'g' => hexdec(substr($hex, 2, 2)),
+            'b' => hexdec(substr($hex, 4, 2)),
+        ];
+    }
+
+    /**
+     * Inserta/actualiza docProps/core.xml dentro del DOCX para fijar título y autor.
+     * Esto permite que LibreOffice genere PDF con metadatos correctos (título != "PHPWord").
+     */
+    private function setDocxCoreProperties(string $docxPath, string $title, ?string $creator = null): void
+    {
+        if (!class_exists(\ZipArchive::class)) return;
+        $zip = new \ZipArchive();
+        if ($zip->open($docxPath) !== true) return;
+        try {
+            $coreXmlName = 'docProps/core.xml';
+            $xml = $zip->getFromName($coreXmlName);
+            if ($xml === false) {
+                // Crear estructura mínima si no existe
+                $xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    .'<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+                    .'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+                    .'xmlns:dcterms="http://purl.org/dc/terms/" '
+                    .'xmlns:dcmitype="http://purl.org/dc/dcmitype/" '
+                    .'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+                    .'<dc:title></dc:title>'
+                    .'<dc:creator></dc:creator>'
+                    .'<cp:lastModifiedBy></cp:lastModifiedBy>'
+                    .'</cp:coreProperties>';
+            }
+            $dom = new \DOMDocument();
+            @$dom->loadXML($xml);
+            $xpath = new \DOMXPath($dom);
+            $xpath->registerNamespace('cp', 'http://schemas.openxmlformats.org/package/2006/metadata/core-properties');
+            $xpath->registerNamespace('dc', 'http://purl.org/dc/elements/1.1/');
+
+            $ensureNode = function(string $query, string $fallbackName) use ($dom, $xpath) {
+                $nodes = $xpath->query($query);
+                if ($nodes && $nodes->length > 0) return $nodes->item(0);
+                // Crear si no existe
+                $parts = explode(':', $fallbackName);
+                if (count($parts) === 2) {
+                    $ns = $parts[0] === 'dc' ? 'http://purl.org/dc/elements/1.1/' : 'http://schemas.openxmlformats.org/package/2006/metadata/core-properties';
+                    $el = $dom->createElementNS($ns, $fallbackName);
+                } else {
+                    $el = $dom->createElement($fallbackName);
+                }
+                $root = $dom->documentElement ?: $dom->appendChild($dom->createElementNS('http://schemas.openxmlformats.org/package/2006/metadata/core-properties','cp:coreProperties'));
+                $root->appendChild($el);
+                return $el;
+            };
+
+            $titleNode = $ensureNode('//dc:title', 'dc:title');
+            while ($titleNode->firstChild) { $titleNode->removeChild($titleNode->firstChild); }
+            $titleNode->appendChild($dom->createTextNode($title));
+
+            if ($creator) {
+                $creatorNode = $ensureNode('//dc:creator', 'dc:creator');
+                while ($creatorNode->firstChild) { $creatorNode->removeChild($creatorNode->firstChild); }
+                $creatorNode->appendChild($dom->createTextNode($creator));
+
+                $lastByNode = $ensureNode('//cp:lastModifiedBy', 'cp:lastModifiedBy');
+                while ($lastByNode->firstChild) { $lastByNode->removeChild($lastByNode->firstChild); }
+                $lastByNode->appendChild($dom->createTextNode($creator));
+            }
+
+            $zip->addFromString($coreXmlName, $dom->saveXML());
+        } finally {
+            $zip->close();
+        }
+    }
+
+    /**
+     * Genera una imagen cuadrada (2400x2400) que combina metadata + tabla
+     * La metadata ocupa la parte superior y la tabla el resto del espacio
+     */
+    private function generateTableWithMetadataImage(
+        array $tableData,
+        array $columns,
+        string $headerColor,
+        array $annexMetadata,
+        array $companyData
+    ): string {
+        $tempDir = storage_path('app/temp');
+        if (!File::isDirectory($tempDir)) {
+            File::makeDirectory($tempDir, 0755, true);
+        }
+
+        // Dimensiones cuadradas
+        $totalWidth = 2400;
+        $totalHeight = 2400;
+        
+        // Dividir espacio: metadata arriba (450px) + tabla abajo (1950px)
+        $metadataHeight = 450;
+        $tableHeight = $totalHeight - $metadataHeight;
+        
+        // Crear imagen cuadrada
+        $im = imagecreatetruecolor($totalWidth, $totalHeight);
+        $white = imagecolorallocate($im, 255, 255, 255);
+        $black = imagecolorallocate($im, 0, 0, 0);
+        $goldBg = imagecolorallocate($im, 153, 102, 51);
+        $navyBlue = imagecolorallocate($im, 0, 51, 102);
+        $borderColor = imagecolorallocate($im, 0, 0, 0);
+        $textDark = imagecolorallocate($im, 30, 30, 30);
+        
+        // Fondo blanco para toda la imagen
+        imagefilledrectangle($im, 0, 0, $totalWidth - 1, $totalHeight - 1, $white);
+        
+        // === SECCIÓN METADATA (superior - 450px) ===
+        $borderThick = 4;
+        
+        // Estructura de 3 columnas igual que generateAnnexMetadataImage
+        $col1W = 450;  // Logo izquierdo
+        $col2W = 1280; // Título con fondo dorado
+        $col3W = $totalWidth - $col1W - $col2W; // Panel derecho (670px)
+        
+        $col1X = 0;
+        $col2X = $col1W;
+        $col3X = $col2X + $col2W;
+        
+        $fontPath = 'C:/Windows/Fonts/arial.ttf';
+        $useTTF = file_exists($fontPath);
+        
+        // Helper para cargar imágenes
+        $loadImage = function (?string $path) {
+            if (!$path) return null;
+            try {
+                if (Storage::disk('public')->exists($path)) {
+                    $full = Storage::disk('public')->path($path);
+                } else {
+                    $full = storage_path('app/public/' . ltrim($path, '/'));
+                }
+                if (!file_exists($full)) return null;
+                $data = @file_get_contents($full);
+                if ($data === false) return null;
+                return @imagecreatefromstring($data) ?: null;
+            } catch (\Throwable $e) {
+                return null;
+            }
+        };
+        
+        // Helper para dibujar imagen escalada
+        $drawScaled = function ($dstIm, $srcIm, $dstX, $dstY, $maxW, $maxH) {
+            if (!$srcIm) return;
+            $sw = imagesx($srcIm);
+            $sh = imagesy($srcIm);
+            if ($sw <= 0 || $sh <= 0) return;
+            $scale = min($maxW / $sw, $maxH / $sh);
+            $tw = max(1, (int)round($sw * $scale));
+            $th = max(1, (int)round($sh * $scale));
+            imagecopyresampled($dstIm, $srcIm, $dstX + (int)(($maxW - $tw)/2), $dstY + (int)(($maxH - $th)/2), 0, 0, $tw, $th, $sw, $sh);
+        };
+        
+        // Borde superior de metadata
+        imagesetthickness($im, $borderThick);
+        imagerectangle($im, 0, 0, $totalWidth - 1, $metadataHeight - 1, $black);
+        
+        // Líneas verticales divisorias
+        imageline($im, $col2X, 0, $col2X, $metadataHeight - 1, $black);
+        imageline($im, $col3X, 0, $col3X, $metadataHeight - 1, $black);
+        
+        // COLUMNA 1: Logo izquierdo
+        $leftLogo = $loadImage($companyData['logo_izquierdo'] ?? null);
+        if ($leftLogo) {
+            $drawScaled($im, $leftLogo, $col1X + 20, 20, $col1W - 40, $metadataHeight - 40);
+            imagedestroy($leftLogo);
+        }
+        
+        // COLUMNA 2: Título con fondo dorado
+        imagefilledrectangle($im, $col2X + 1, 1, $col3X - 1, $metadataHeight - 2, $goldBg);
+        
+        if ($useTTF) {
+            $title = strtoupper($annexMetadata['nombre']);
+            $titleFontSize = 48;
+            $titleY = (int)($metadataHeight / 2 + 18);
+            $bbox = imagettfbbox($titleFontSize, 0, $fontPath, $title);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col2X + max(0, (int)(($col2W - $textW) / 2));
+            imagettftext($im, $titleFontSize, 0, $textX, $titleY, $white, $fontPath, $title);
+        }
+        
+        // COLUMNA 3: Panel derecho con 4 filas
+        $rowHeight = (int)($metadataHeight / 4);
+        
+        // Líneas horizontales entre filas
+        for ($i = 1; $i < 4; $i++) {
+            $lineY = $i * $rowHeight;
+            imageline($im, $col3X, $lineY, $totalWidth - 1, $lineY, $black);
+        }
+        
+        if ($useTTF) {
+            // FILA 1: Versión (tamaños reducidos 10%: 28->25, 36->32)
+            $row1Y = 50;
+            $versionLabel = "Version";
+            $versionValue = $companyData['version'] ?? '1';
+            $bbox = imagettfbbox(25, 0, $fontPath, $versionLabel);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col3X + max(0, (int)(($col3W - $textW) / 2));
+            imagettftext($im, 25, 0, $textX, $row1Y + 28, $black, $fontPath, $versionLabel);
+            
+            $bbox = imagettfbbox(32, 0, $fontPath, $versionValue);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col3X + max(0, (int)(($col3W - $textW) / 2));
+            imagettftext($im, 32, 0, $textX, $row1Y + 70, $black, $fontPath, $versionValue);
+            
+            // FILA 2: Logo derecho pequeño
+            $row2Y = $rowHeight;
+            $rightLogo = $loadImage($companyData['logo_derecho'] ?? null);
+            if ($rightLogo) {
+                $drawScaled($im, $rightLogo, $col3X + 30, $row2Y + 20, $col3W - 60, $rowHeight - 40);
+                imagedestroy($rightLogo);
+            }
+            
+            // FILA 3: Fecha (tamaños reducidos 10%: 28->25, 36->32)
+            $row3Y = $rowHeight * 2 + 50;
+            $fechaLabel = "Fecha";
+            $fechaValue = $annexMetadata['uploaded_at'] ?? date('d/m/Y');
+            $bbox = imagettfbbox(25, 0, $fontPath, $fechaLabel);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col3X + max(0, (int)(($col3W - $textW) / 2));
+            imagettftext($im, 25, 0, $textX, $row3Y + 28, $black, $fontPath, $fechaLabel);
+            
+            $bbox = imagettfbbox(32, 0, $fontPath, $fechaValue);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col3X + max(0, (int)(($col3W - $textW) / 2));
+            imagettftext($im, 32, 0, $textX, $row3Y + 70, $black, $fontPath, $fechaValue);
+            
+            // FILA 4: Código (tamaños reducidos 10%: 28->25, 36->32)
+            $row4Y = $rowHeight * 3 + 50;
+            $codigoLabel = "Codigo";
+            $codigoValue = $annexMetadata['codigo'] ?? 'N/A';
+            $bbox = imagettfbbox(25, 0, $fontPath, $codigoLabel);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col3X + max(0, (int)(($col3W - $textW) / 2));
+            imagettftext($im, 25, 0, $textX, $row4Y + 28, $navyBlue, $fontPath, $codigoLabel);
+            
+            $bbox = imagettfbbox(32, 0, $fontPath, $codigoValue);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col3X + max(0, (int)(($col3W - $textW) / 2));
+            imagettftext($im, 32, 0, $textX, $row4Y + 70, $black, $fontPath, $codigoValue);
+        }
+        
+        // === SECCIÓN TABLA (inferior) ===
+        $tableStartY = $metadataHeight;
+        
+        $cellPadding = 20;
+        $cellHeight = 60;
+        $headerHeight = 70;
+        $ttfSizeHeader = 28;
+        $ttfSizeCell = 24;
+        
+        // Calcular ancho de columnas
+        $colCount = count($columns);
+        $colWidth = $colCount > 0 ? floor($totalWidth / $colCount) : $totalWidth;
+        
+        // Limitar filas para que quepan en el espacio disponible
+        $rowCount = count($tableData);
+        $maxRows = (int)(($tableHeight - $headerHeight - 40) / $cellHeight);
+        if ($rowCount > $maxRows) {
+            $tableData = array_slice($tableData, 0, $maxRows);
+            $rowCount = count($tableData);
+        }
+        
+        // Parsear color de cabecera de tabla
+        $headerRGB = $this->hexToRgb($headerColor);
+        $headerBg = imagecolorallocate($im, $headerRGB['r'], $headerRGB['g'], $headerRGB['b']);
+        $textWhite = imagecolorallocate($im, 255, 255, 255);
+        
+        // Dibujar cabecera de tabla
+        imagefilledrectangle($im, 0, $tableStartY, $totalWidth - 1, $tableStartY + $headerHeight, $headerBg);
+        
+        $x = 0;
+        foreach ($columns as $idx => $col) {
+            if ($idx > 0) {
+                imageline($im, $x, $tableStartY, $x, $tableStartY + $headerHeight, $borderColor);
+            }
+            
+            $textX = $x + $cellPadding;
+            $textY = $tableStartY + ($headerHeight / 2) + 10;
+            
+            if ($useTTF) {
+                imagettftext($im, $ttfSizeHeader, 0, $textX, $textY, $textWhite, $fontPath, $col);
+            }
+            
+            $x += $colWidth;
+        }
+        
+        // Línea debajo de la cabecera
+        imageline($im, 0, $tableStartY + $headerHeight, $totalWidth, $tableStartY + $headerHeight, $borderColor);
+        
+        // Dibujar filas de datos
+        $y = $tableStartY + $headerHeight;
+        foreach ($tableData as $row) {
+            $x = 0;
+            $y += $cellHeight;
+            
+            imageline($im, 0, $y, $totalWidth, $y, $borderColor);
+            
+            foreach ($columns as $idx => $col) {
+                if ($idx > 0) {
+                    imageline($im, $x, $tableStartY + $headerHeight, $x, $y, $borderColor);
+                }
+                
+                $cellValue = $row[$col] ?? '-';
+                $maxChars = 40;
+                if (strlen($cellValue) > $maxChars) {
+                    $cellValue = substr($cellValue, 0, $maxChars - 3) . '...';
+                }
+                
+                $textX = $x + $cellPadding;
+                $textY = ($y - $cellHeight / 2) + 9;
+                
+                if ($useTTF) {
+                    imagettftext($im, $ttfSizeCell, 0, $textX, $textY, $textDark, $fontPath, $cellValue);
+                }
+                
+                $x += $colWidth;
+            }
+        }
+        
+        // Borde exterior
+        imagerectangle($im, 0, 0, $totalWidth - 1, $totalHeight - 1, $borderColor);
+        
+        $outPath = $tempDir . '/' . uniqid('table_complete_', true) . '.png';
+        imagepng($im, $outPath);
+        imagedestroy($im);
+        
+        Log::info('Imagen cuadrada completa (metadata + tabla) generada', [
+            'path' => $outPath,
+            'rows' => $rowCount,
+            'cols' => $colCount,
+            'dimensions' => '2400x2400'
+        ]);
+        
+        return $outPath;
+    }
+
+    /**
+     * Genera una imagen cuadrada (2400x2400) que combina metadata + texto
+     * La metadata ocupa la parte superior y el texto el resto del espacio
+     */
+    private function generateTextWithMetadataImage(
+        string $textContent,
+        array $annexMetadata,
+        array $companyData,
+        int $textFontSize = 20
+    ): string {
+        $tempDir = storage_path('app/temp');
+        if (!File::isDirectory($tempDir)) {
+            File::makeDirectory($tempDir, 0755, true);
+        }
+
+        // Dimensiones cuadradas
+        $totalWidth = 2400;
+        $totalHeight = 2400;
+        
+        // Dividir espacio: metadata arriba (450px) + texto abajo (1950px)
+        $metadataHeight = 450;
+        $textAreaHeight = $totalHeight - $metadataHeight;
+        
+        // Crear imagen cuadrada
+        $im = imagecreatetruecolor($totalWidth, $totalHeight);
+        $white = imagecolorallocate($im, 255, 255, 255);
+        $black = imagecolorallocate($im, 0, 0, 0);
+        $goldBg = imagecolorallocate($im, 153, 102, 51);
+        $navyBlue = imagecolorallocate($im, 0, 51, 102);
+        $borderColor = imagecolorallocate($im, 0, 0, 0);
+        $textDark = imagecolorallocate($im, 30, 30, 30);
+        
+        // Fondo blanco para toda la imagen
+        imagefilledrectangle($im, 0, 0, $totalWidth - 1, $totalHeight - 1, $white);
+        
+        // === SECCIÓN METADATA (superior - 450px) ===
+        $borderThick = 4;
+        
+        // Estructura de 3 columnas igual que generateAnnexMetadataImage
+        $col1W = 450;  // Logo izquierdo
+        $col2W = 1280; // Título con fondo dorado
+        $col3W = $totalWidth - $col1W - $col2W; // Panel derecho (670px)
+        
+        $col1X = 0;
+        $col2X = $col1W;
+        $col3X = $col2X + $col2W;
+        
+        $fontPath = 'C:/Windows/Fonts/arial.ttf';
+        $useTTF = file_exists($fontPath);
+        
+        // Helper para cargar imágenes
+        $loadImage = function (?string $path) {
+            if (!$path) return null;
+            try {
+                if (Storage::disk('public')->exists($path)) {
+                    $full = Storage::disk('public')->path($path);
+                } else {
+                    $full = storage_path('app/public/' . ltrim($path, '/'));
+                }
+                if (!file_exists($full)) return null;
+                $data = @file_get_contents($full);
+                if ($data === false) return null;
+                return @imagecreatefromstring($data) ?: null;
+            } catch (\Throwable $e) {
+                return null;
+            }
+        };
+        
+        // Helper para dibujar imagen escalada
+        $drawScaled = function ($dstIm, $srcIm, $dstX, $dstY, $maxW, $maxH) {
+            if (!$srcIm) return;
+            $sw = imagesx($srcIm);
+            $sh = imagesy($srcIm);
+            if ($sw <= 0 || $sh <= 0) return;
+            $scale = min($maxW / $sw, $maxH / $sh);
+            $tw = max(1, (int)round($sw * $scale));
+            $th = max(1, (int)round($sh * $scale));
+            imagecopyresampled($dstIm, $srcIm, $dstX + (int)(($maxW - $tw)/2), $dstY + (int)(($maxH - $th)/2), 0, 0, $tw, $th, $sw, $sh);
+        };
+        
+        // Borde superior de metadata
+        imagesetthickness($im, $borderThick);
+        imagerectangle($im, 0, 0, $totalWidth - 1, $metadataHeight - 1, $black);
+        
+        // Líneas verticales divisorias
+        imageline($im, $col2X, 0, $col2X, $metadataHeight - 1, $black);
+        imageline($im, $col3X, 0, $col3X, $metadataHeight - 1, $black);
+        
+        // COLUMNA 1: Logo izquierdo
+        $leftLogo = $loadImage($companyData['logo_izquierdo'] ?? null);
+        if ($leftLogo) {
+            $drawScaled($im, $leftLogo, $col1X + 20, 20, $col1W - 40, $metadataHeight - 40);
+            imagedestroy($leftLogo);
+        }
+        
+        // COLUMNA 2: Título con fondo dorado
+        imagefilledrectangle($im, $col2X + 1, 1, $col3X - 1, $metadataHeight - 2, $goldBg);
+        
+        if ($useTTF) {
+            $title = strtoupper($annexMetadata['nombre']);
+            $titleFontSize = 48;
+            $titleY = (int)($metadataHeight / 2 + 18);
+            $bbox = imagettfbbox($titleFontSize, 0, $fontPath, $title);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col2X + max(0, (int)(($col2W - $textW) / 2));
+            imagettftext($im, $titleFontSize, 0, $textX, $titleY, $white, $fontPath, $title);
+        }
+        
+        // COLUMNA 3: Panel derecho con 4 filas
+        $rowHeight = (int)($metadataHeight / 4);
+        
+        // Líneas horizontales entre filas
+        for ($i = 1; $i < 4; $i++) {
+            $lineY = $i * $rowHeight;
+            imageline($im, $col3X, $lineY, $totalWidth - 1, $lineY, $black);
+        }
+        
+        if ($useTTF) {
+            // FILA 1: Versión (tamaños reducidos 10%: 28->25, 36->32)
+            $row1Y = 50;
+            $versionLabel = "Version";
+            $versionValue = $companyData['version'] ?? '1';
+            $bbox = imagettfbbox(25, 0, $fontPath, $versionLabel);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col3X + max(0, (int)(($col3W - $textW) / 2));
+            imagettftext($im, 25, 0, $textX, $row1Y + 28, $black, $fontPath, $versionLabel);
+            
+            $bbox = imagettfbbox(32, 0, $fontPath, $versionValue);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col3X + max(0, (int)(($col3W - $textW) / 2));
+            imagettftext($im, 32, 0, $textX, $row1Y + 70, $black, $fontPath, $versionValue);
+            
+            // FILA 2: Logo derecho pequeño
+            $row2Y = $rowHeight;
+            $rightLogo = $loadImage($companyData['logo_derecho'] ?? null);
+            if ($rightLogo) {
+                $drawScaled($im, $rightLogo, $col3X + 30, $row2Y + 20, $col3W - 60, $rowHeight - 40);
+                imagedestroy($rightLogo);
+            }
+            
+            // FILA 3: Fecha (tamaños reducidos 10%: 28->25, 36->32)
+            $row3Y = $rowHeight * 2 + 50;
+            $fechaLabel = "Fecha";
+            $fechaValue = $annexMetadata['uploaded_at'] ?? date('d/m/Y');
+            $bbox = imagettfbbox(25, 0, $fontPath, $fechaLabel);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col3X + max(0, (int)(($col3W - $textW) / 2));
+            imagettftext($im, 25, 0, $textX, $row3Y + 28, $black, $fontPath, $fechaLabel);
+            
+            $bbox = imagettfbbox(32, 0, $fontPath, $fechaValue);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col3X + max(0, (int)(($col3W - $textW) / 2));
+            imagettftext($im, 32, 0, $textX, $row3Y + 70, $black, $fontPath, $fechaValue);
+            
+            // FILA 4: Código (tamaños reducidos 10%: 28->25, 36->32)
+            $row4Y = $rowHeight * 3 + 50;
+            $codigoLabel = "Codigo";
+            $codigoValue = $annexMetadata['codigo'] ?? 'N/A';
+            $bbox = imagettfbbox(25, 0, $fontPath, $codigoLabel);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col3X + max(0, (int)(($col3W - $textW) / 2));
+            imagettftext($im, 25, 0, $textX, $row4Y + 28, $navyBlue, $fontPath, $codigoLabel);
+            
+            $bbox = imagettfbbox(32, 0, $fontPath, $codigoValue);
+            $textW = abs($bbox[4] - $bbox[0]);
+            $textX = $col3X + max(0, (int)(($col3W - $textW) / 2));
+            imagettftext($im, 32, 0, $textX, $row4Y + 70, $black, $fontPath, $codigoValue);
+        }
+        
+        // === SECCIÓN TEXTO (inferior) ===
+        $textStartY = $metadataHeight;
+        
+        // Formato APA: Márgenes de 1 pulgada (96 píxeles a 96 DPI, pero escalado a 2400px de ancho)
+        // 1 pulgada = 2.54 cm, en imagen de 2400px (equivalente a ~21cm de ancho real) = ~110px por pulgada
+        $marginLeft = 110;   // Margen izquierdo APA
+        $marginRight = 110;  // Margen derecho APA
+        $marginTop = 60;     // Margen superior del área de texto
+        $marginBottom = 60;  // Margen inferior
+        
+        $textWidth = $totalWidth - $marginLeft - $marginRight; // Ancho del texto
+        
+        // Formato APA: Times New Roman, tamaño dinámico según parámetro
+        $fontPathTimes = 'C:/Windows/Fonts/times.ttf';
+        if (!file_exists($fontPathTimes)) {
+            $fontPathTimes = 'C:/Windows/Fonts/Times.ttf'; // Algunas versiones
+        }
+        if (!file_exists($fontPathTimes)) {
+            $fontPathTimes = 'C:/Windows/Fonts/timesbd.ttf'; // Fallback
+        }
+        $useTimesFont = file_exists($fontPathTimes);
+        
+        // Si no se encuentra Times, usar Arial como fallback
+        if (!$useTimesFont) {
+            $fontPathTimes = $fontPath; // Arial como fallback
+        }
+        
+        $apaTtfSize = $textFontSize; // Usar tamaño de fuente proporcionado (20pt sin metadata, 30pt con metadata)
+        $apaLineHeight = $textFontSize * 2; // Doble espacio proporcional al tamaño de fuente
+        
+        // Limpiar HTML del contenido de texto
+        $textContent = strip_tags($textContent);
+        $textContent = html_entity_decode($textContent, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $textContent = trim($textContent);
+        
+        // Dividir texto en párrafos (respetando saltos de línea originales)
+        $paragraphs = preg_split('/\n\s*\n/', $textContent); // Párrafos separados por líneas en blanco
+        if (empty($paragraphs)) {
+            $paragraphs = [$textContent];
+        }
+        
+        $lines = [];
+        foreach ($paragraphs as $paragraph) {
+            $paragraph = trim($paragraph);
+            if (empty($paragraph)) continue;
+            
+            // Dividir párrafo en líneas que quepan en el ancho disponible (justificado)
+            $words = preg_split('/\s+/', $paragraph);
+            $currentLine = '';
+            
+            foreach ($words as $word) {
+                $testLine = empty($currentLine) ? $word : $currentLine . ' ' . $word;
+                
+                // Medir ancho del texto con TTF
+                if ($useTTF) {
+                    $bbox = imagettfbbox($apaTtfSize, 0, $fontPathTimes, $testLine);
+                    $lineWidth = abs($bbox[4] - $bbox[0]);
+                } else {
+                    $lineWidth = strlen($testLine) * 7; // Estimación
+                }
+                
+                if ($lineWidth > $textWidth && !empty($currentLine)) {
+                    // Línea completa, guardarla
+                    $lines[] = ['text' => $currentLine, 'justify' => true];
+                    $currentLine = $word;
+                } else {
+                    $currentLine = $testLine;
+                }
+            }
+            
+            // Agregar última línea del párrafo (sin justificar, alineada a la izquierda)
+            if (!empty($currentLine)) {
+                $lines[] = ['text' => $currentLine, 'justify' => false];
+            }
+            
+            // Espacio entre párrafos (doble espacio)
+            $lines[] = ['text' => '', 'justify' => false];
+        }
+        
+        // Limitar líneas para que quepan en el espacio disponible
+        $availableHeight = $textAreaHeight - $marginTop - $marginBottom;
+        $maxLines = (int)($availableHeight / $apaLineHeight);
+        if (count($lines) > $maxLines) {
+            $lines = array_slice($lines, 0, $maxLines - 1);
+            $lines[] = ['text' => '...', 'justify' => false];
+        }
+        
+        // Dibujar texto línea por línea con justificación
+        $currentY = $textStartY + $marginTop + $apaLineHeight;
+        foreach ($lines as $lineData) {
+            $lineText = $lineData['text'];
+            $shouldJustify = $lineData['justify'];
+            
+            if (empty($lineText)) {
+                // Línea vacía, solo avanzar
+                $currentY += $apaLineHeight;
+                continue;
+            }
+            
+            if ($useTimesFont) {
+                if ($shouldJustify) {
+                    // Justificar: distribuir palabras uniformemente
+                    $words = preg_split('/\s+/', $lineText);
+                    if (count($words) > 1) {
+                        // Calcular espacio total que ocupan las palabras
+                        $totalWordWidth = 0;
+                        $wordWidths = [];
+                        foreach ($words as $word) {
+                            $bbox = imagettfbbox($apaTtfSize, 0, $fontPathTimes, $word);
+                            $wordWidth = abs($bbox[4] - $bbox[0]);
+                            $wordWidths[] = $wordWidth;
+                            $totalWordWidth += $wordWidth;
+                        }
+                        
+                        // Espacio disponible entre palabras
+                        $remainingSpace = $textWidth - $totalWordWidth;
+                        $spacePerGap = $remainingSpace / (count($words) - 1);
+                        
+                        // Dibujar palabras con espaciado justificado
+                        $currentX = $marginLeft;
+                        foreach ($words as $idx => $word) {
+                            imagettftext($im, $apaTtfSize, 0, (int)$currentX, $currentY, $textDark, $fontPathTimes, $word);
+                            $currentX += $wordWidths[$idx] + $spacePerGap;
+                        }
+                    } else {
+                        // Una sola palabra, alinear a la izquierda
+                        imagettftext($im, $apaTtfSize, 0, $marginLeft, $currentY, $textDark, $fontPathTimes, $lineText);
+                    }
+                } else {
+                    // Sin justificar, alinear a la izquierda
+                    imagettftext($im, $apaTtfSize, 0, $marginLeft, $currentY, $textDark, $fontPathTimes, $lineText);
+                }
+            }
+            
+            $currentY += $apaLineHeight;
+        }
+        
+        // Borde exterior
+        imagerectangle($im, 0, 0, $totalWidth - 1, $totalHeight - 1, $borderColor);
+        
+        $outPath = $tempDir . '/' . uniqid('text_complete_', true) . '.png';
+        imagepng($im, $outPath);
+        imagedestroy($im);
+        
+        Log::info('Imagen cuadrada completa (metadata + texto) generada', [
+            'path' => $outPath,
+            'lines' => count($lines),
+            'dimensions' => '2400x2400'
+        ]);
+        
+        return $outPath;
+    }
 
     /**
      * Construye una tabla compleja para insertar en el placeholder del anexo:
@@ -1395,8 +2834,10 @@ class ProgramController extends Controller
         $annexes = Annex::whereIn('id', $annexIds)->get()->map(function ($a) use ($companyId, $program) {
             $files = [];
             $contentText = null;
+            $tableData = null;
             $uploadedAt = null;
             $hasTextSubmission = false;
+            $hasTableSubmission = false;
             
             if ($companyId) {
                 $subs = CompanyAnnexSubmission::where('company_id', $companyId)
@@ -1406,8 +2847,16 @@ class ProgramController extends Controller
                     ->get();
 
                 foreach ($subs as $s) {
-                    // Priorizar contenido de texto si existe en la submission, independientemente del content_type configurado
+                    // Priorizar contenido de texto/tabla si existe en la submission
                     if (!empty($s->content_text)) {
+                        // Si el anexo es tipo tabla, parsear JSON
+                        if ($a->content_type === 'table') {
+                            $hasTableSubmission = true;
+                            $tableData = json_decode($s->content_text, true);
+                            $uploadedAt = $s->updated_at ? $s->updated_at->format('Y-m-d H:i') : ($s->created_at ? $s->created_at->format('Y-m-d H:i') : null);
+                            continue;
+                        }
+                        // Si no es tabla, es texto plano
                         $hasTextSubmission = true;
                         $contentText = $s->content_text;
                         $uploadedAt = $s->updated_at ? $s->updated_at->format('Y-m-d H:i') : ($s->created_at ? $s->created_at->format('Y-m-d H:i') : null);
@@ -1454,16 +2903,19 @@ class ProgramController extends Controller
                 $type = 'IMAGES';
             }
 
-            // content_type efectivo para el frontend: si hay submission de texto, marcar como 'text' para mostrar editor
-            $effectiveContentType = $hasTextSubmission ? 'text' : ($a->content_type ?? 'image');
+            // content_type efectivo para el frontend: si hay submission de texto/tabla, marcar apropiadamente
+            $effectiveContentType = $hasTextSubmission ? 'text' : ($hasTableSubmission ? 'table' : ($a->content_type ?? 'image'));
 
             return [
                 'id' => $a->id,
                 'name' => $a->nombre,
                 'code' => $a->codigo_anexo,
                 'type' => $type,
-                'content_type' => $effectiveContentType, // Incluir content_type (image/text)
+                'content_type' => $effectiveContentType, // Incluir content_type (image/text/table)
                 'content_text' => $contentText, // Incluir texto si existe
+                'table_columns' => $a->table_columns, // Configuración de columnas para tabla
+                'table_header_color' => $a->table_header_color, // Color de cabecera para tabla
+                'table_data' => $tableData, // Datos de la tabla parseados
                 'uploaded_at' => $uploadedAt,
                 'files' => $files,
             ];
@@ -1501,6 +2953,29 @@ class ProgramController extends Controller
                     if (!$storagePath) return null;
                     return url('public-storage/' . ltrim($storagePath, '/'));
                 };
+                
+                // Buscar el PDF actual del programa para esta empresa
+                $disk = Storage::disk('public');
+                $baseRoot = 'company-documents/company_' . $company->id . '/program_' . $program->id;
+                $pdfRel = $baseRoot . '/current.pdf';
+                $hasPdf = $disk->exists($pdfRel);
+                $pdfUrl = $hasPdf ? route('public.storage', ['path' => $pdfRel]) : null;
+                $pdfMtime = null;
+                $pdfUrlCacheBusted = null;
+                if ($hasPdf) {
+                    try {
+                        $pdfAbs = $disk->path($pdfRel);
+                        $pdfMtime = @filemtime($pdfAbs) ?: null;
+                        if ($pdfMtime) {
+                            $pdfUrlCacheBusted = $pdfUrl . '?v=' . $pdfMtime;
+                        } else {
+                            $pdfUrlCacheBusted = $pdfUrl;
+                        }
+                    } catch (\Throwable $e) {
+                        $pdfUrlCacheBusted = $pdfUrl;
+                    }
+                }
+                
                 $companyPayload = [
                     'id' => $company->id,
                     'name' => $company->nombre,
@@ -1510,6 +2985,9 @@ class ProgramController extends Controller
                     'representative' => $company->representante_legal,
                     'logo_left_url' => $buildPublicUrl($company->logo_izquierdo),
                     'logo_right_url' => $buildPublicUrl($company->logo_derecho),
+                    'current_pdf_url' => $pdfUrl,
+                    'current_pdf_mtime' => $pdfMtime,
+                    'current_pdf_url_cache' => $pdfUrlCacheBusted,
                 ];
             }
         }

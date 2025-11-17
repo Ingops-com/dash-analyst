@@ -26,6 +26,10 @@ type Annex = {
     tipo: string;
     consecutivo: number;
     programId: number;
+    content_type?: string;
+    placeholder?: string;
+    table_columns?: string[];
+    table_header_color?: string;
 };
 
 type Program = {

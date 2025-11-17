@@ -17,7 +17,13 @@ class Annex extends Model
         'placeholder',
         'content_type',
         'tipo',
-        'status'
+        'status',
+        'table_columns',
+        'table_header_color'
+    ];
+
+    protected $casts = [
+        'table_columns' => 'array'
     ];
 
     public function programs()
