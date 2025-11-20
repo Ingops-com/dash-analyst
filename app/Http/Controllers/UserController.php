@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\User;
 use App\Models\Company;
+use App\Models\CompanyUserPermission;
+use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
@@ -19,8 +21,8 @@ class UserController extends Controller
         $isSuper = $role === 'super-admin';
         $isadmin = $isSuper || in_array($role, ['admin', 'administrador']);
 
-        $query = User::with(['companies:id,nombre'])
-            ->select('id', 'name', 'rol', 'email', 'habilitado');
+        $query = User::with(['companies:id,nombre', 'companyPermissions'])
+            ->select('id', 'name', 'username', 'rol', 'email', 'habilitado');
 
         if ($isSuper) {
             // no restrictions
@@ -37,13 +39,26 @@ class UserController extends Controller
         }
 
         $users = $query->orderBy('id')->get()->map(function ($u) {
+            $permissions = $u->companyPermissions->mapWithKeys(function ($perm) {
+                return [
+                    (string)$perm->company_id => [
+                        'can_view_annexes' => (bool)$perm->can_view_annexes,
+                        'can_upload_annexes' => (bool)$perm->can_upload_annexes,
+                        'can_delete_annexes' => (bool)$perm->can_delete_annexes,
+                        'can_generate_documents' => (bool)$perm->can_generate_documents,
+                    ],
+                ];
+            });
+
             return [
                 'id' => $u->id,
                 'nombre' => $u->name,
+                'username' => $u->username,
                 'rol' => $u->rol,
                 'correo' => $u->email,
                 'habilitado' => (bool) $u->habilitado,
                 'empresasAsociadas' => $u->companies->pluck('id')->values(),
+                'permisos' => (object)$permissions,
             ];
         });
 
@@ -80,6 +95,7 @@ class UserController extends Controller
             return back()->withErrors(['company_ids' => 'Un usuario solo puede tener una empresa asignada']);
         }
         $user->companies()->sync($ids);
+        $this->syncCompanyPermissions($user, $ids);
 
         return back()->with('success', 'Empresas asignadas actualizadas');
     }
@@ -105,11 +121,13 @@ class UserController extends Controller
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'username' => ['required', 'string', 'max:255', 'unique:users,username'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:6'],
             'rol' => ['required', 'string'],
             'company_ids' => ['array'],
             'company_ids.*' => ['integer', 'exists:companies,id'],
+            'permissions' => ['array'],
         ]);
 
         $rolLower = strtolower($validated['rol']);
@@ -119,14 +137,19 @@ class UserController extends Controller
 
         $user = new User();
         $user->name = $validated['name'];
+        $user->username = $validated['username'];
         $user->email = $validated['email'];
         $user->rol = $validated['rol'];
         $user->password = $validated['password'];
         $user->habilitado = true;
         $user->save();
 
-        if (!empty($validated['company_ids'])) {
-            $user->companies()->sync($validated['company_ids']);
+        $companyIds = $validated['company_ids'] ?? [];
+        if (!empty($companyIds)) {
+            $user->companies()->sync($companyIds);
+            $this->syncCompanyPermissions($user, $companyIds);
+            $user->load('companies');
+            $this->applyCompanyPermissions($user, $request->input('permissions', []));
         }
 
         return back()->with('success', 'Usuario creado');
@@ -166,11 +189,13 @@ class UserController extends Controller
 
         $validated = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
-            'email' => ['sometimes', 'email', 'max:255', 'unique:users,email,' . $user->id],
+            'username' => ['sometimes', 'string', 'max:255', Rule::unique('users', 'username')->ignore($user->id)],
+            'email' => ['sometimes', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'password' => ['nullable', 'string', 'min:6'],
             'rol' => ['sometimes', 'string'],
             'company_ids' => ['array'],
             'company_ids.*' => ['integer', 'exists:companies,id'],
+            'permissions' => ['array'],
         ]);
 
         if (array_key_exists('rol', $validated)) {
@@ -183,6 +208,7 @@ class UserController extends Controller
 
         $user->fill(array_filter([
             'name' => $validated['name'] ?? null,
+            'username' => $validated['username'] ?? null,
             'email' => $validated['email'] ?? null,
             'rol' => $validated['rol'] ?? null,
         ], fn($v) => !is_null($v)));
@@ -194,7 +220,14 @@ class UserController extends Controller
         $user->save();
 
         if ($request->has('company_ids')) {
-            $user->companies()->sync($request->input('company_ids', []));
+            $companyIds = $request->input('company_ids', []);
+            $user->companies()->sync($companyIds);
+            $this->syncCompanyPermissions($user, $companyIds);
+        }
+
+        if ($request->has('permissions')) {
+            $user->loadMissing('companies');
+            $this->applyCompanyPermissions($user, $request->input('permissions', []));
         }
 
         return back()->with('success', 'Usuario actualizado');
@@ -211,6 +244,7 @@ class UserController extends Controller
                 return back()->withErrors(['delete' => 'No se puede eliminar al super-admin']);
             }
             $user->companies()->detach();
+            CompanyUserPermission::where('user_id', $user->id)->delete();
             $user->delete();
             return back()->with('success', 'Usuario eliminado');
         } catch (\Throwable $e) {
@@ -231,5 +265,91 @@ class UserController extends Controller
         $user->save();
 
         return back()->with('success', 'Estado actualizado');
+    }
+
+    public function updateCompanyPermissions(Request $request, int $id)
+    {
+        $current = $request->user();
+        $role = strtolower((string) ($current->rol ?? ''));
+        if (!in_array($role, ['admin', 'administrador', 'super-admin'])) {
+            abort(403);
+        }
+
+        $user = User::with('companies')->findOrFail($id);
+        if (strtolower((string) $user->rol) === 'super-admin') {
+            abort(403, 'No se puede modificar al super-admin');
+        }
+
+        $payload = $request->validate([
+            'permissions' => ['required', 'array'],
+        ]);
+
+        $assignedCompanyIds = $user->companies->pluck('id')->map(fn($id) => (int)$id)->toArray();
+
+        $this->applyCompanyPermissions($user, $payload['permissions']);
+
+        return back()->with('success', 'Permisos actualizados');
+    }
+
+    private function syncCompanyPermissions(User $user, array $companyIds): void
+    {
+        $companyIds = array_map('intval', $companyIds);
+        CompanyUserPermission::where('user_id', $user->id)
+            ->whereNotIn('company_id', $companyIds)
+            ->delete();
+
+        foreach ($companyIds as $companyId) {
+            CompanyUserPermission::firstOrCreate(
+                ['company_id' => $companyId, 'user_id' => $user->id],
+                [
+                    'can_view_annexes' => true,
+                    'can_upload_annexes' => false,
+                    'can_delete_annexes' => false,
+                    'can_generate_documents' => false,
+                ]
+            );
+        }
+    }
+
+    private function normalizePermissions(array $perms): array
+    {
+        $view = (bool)($perms['can_view_annexes'] ?? false);
+        $upload = $view && (bool)($perms['can_upload_annexes'] ?? false);
+        $delete = $upload && (bool)($perms['can_delete_annexes'] ?? false);
+        $generate = $view && (bool)($perms['can_generate_documents'] ?? false);
+
+        return [
+            'can_view_annexes' => $view,
+            'can_upload_annexes' => $upload,
+            'can_delete_annexes' => $delete,
+            'can_generate_documents' => $generate,
+        ];
+    }
+
+    private function applyCompanyPermissions(User $user, array $permissions): void
+    {
+        if (empty($permissions)) {
+            return;
+        }
+
+        $user->loadMissing('companies');
+        $assigned = $user->companies->pluck('id')->map(fn ($id) => (int) $id)->toArray();
+
+        foreach ($permissions as $companyId => $perms) {
+            $companyId = (int) $companyId;
+            if (!in_array($companyId, $assigned, true)) {
+                continue;
+            }
+
+            $normalized = $this->normalizePermissions(is_array($perms) ? $perms : []);
+
+            CompanyUserPermission::updateOrCreate(
+                [
+                    'company_id' => $companyId,
+                    'user_id' => $user->id,
+                ],
+                $normalized
+            );
+        }
     }
 }

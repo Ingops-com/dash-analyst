@@ -39,6 +39,12 @@ export default function ProgramView() {
   // Usar props enviados por el servidor si existen
   const { props } = usePage()
   const serverProgram = (props as any).program ?? null
+  const permissions = (props as any).permissions ?? {
+    can_view_annexes: true,
+    can_upload_annexes: true,
+    can_delete_annexes: true,
+    can_generate_documents: true,
+  }
 
   // Si no llega programa desde el servidor, no mostrar datos de prueba; avisar claramente
   if (!serverProgram) {
@@ -47,6 +53,17 @@ export default function ProgramView() {
         <div className="p-6">
           <h1 className="text-lg font-semibold">Programa no encontrado</h1>
           <p className="text-sm text-muted-foreground">No se recibieron datos del servidor para este programa. Verifica la ruta o la carga de datos en el backend.</p>
+        </div>
+      </AppLayout>
+    )
+  }
+
+  if (!permissions.can_view_annexes) {
+    return (
+      <AppLayout>
+        <div className="p-6">
+          <h1 className="text-lg font-semibold">Sin permisos</h1>
+          <p className="text-sm text-muted-foreground">No tienes permisos para visualizar los anexos de este programa.</p>
         </div>
       </AppLayout>
     )
@@ -98,6 +115,10 @@ export default function ProgramView() {
   const handleAddPoe = () => setProgram(prev => ({ ...prev, poes: [{ id: Date.now(), date: new Date().toLocaleDateString('es-CO') }, ...prev.poes] }));
   
   const handleAnnexUpload = async (annexId: number, e: ChangeEvent<HTMLInputElement>) => {
+    if (!permissions.can_upload_annexes) {
+      alert('No tienes permisos para subir anexos.');
+      return;
+    }
     const files = e.target.files ? Array.from(e.target.files) : [];
     if (files.length === 0) return;
 
@@ -165,6 +186,10 @@ export default function ProgramView() {
   };
 
   const handleTextSubmit = async (annexId: number) => {
+    if (!permissions.can_upload_annexes) {
+      alert('No tienes permisos para subir anexos.');
+      return;
+    }
     const text = textContent[annexId] || '';
     
     if (!text.trim()) {
@@ -257,6 +282,10 @@ export default function ProgramView() {
   };
 
   const handleTableSubmit = async (annexId: number) => {
+    if (!permissions.can_upload_annexes) {
+      alert('No tienes permisos para subir anexos.');
+      return;
+    }
     const data = tableData[annexId];
     if (!data || data.length === 0) {
       alert('Por favor agrega al menos una fila a la tabla.');
@@ -394,6 +423,10 @@ export default function ProgramView() {
   };
   
   const clearAnnexFiles = async (annexId: number) => {
+    if (!permissions.can_delete_annexes) {
+      alert('No tienes permisos para eliminar anexos.');
+      return;
+    }
     if (!confirm('¿Estás seguro de que deseas eliminar todos los archivos de este anexo?')) {
       return;
     }
@@ -443,6 +476,10 @@ export default function ProgramView() {
   };
 
   const deleteAnnexFile = async (annexId: number, fileId: number) => {
+    if (!permissions.can_delete_annexes) {
+      alert('No tienes permisos para eliminar anexos.');
+      return;
+    }
     if (!confirm('¿Estás seguro de que deseas eliminar este archivo?')) {
       return;
     }
@@ -499,7 +536,11 @@ export default function ProgramView() {
     a.type !== 'FORMATO' && (a.content_type === 'text' ? !!a.content_text : a.files.length > 0)
   ).length;
 
-    const handleGeneratePdf = async () => {
+  const handleGeneratePdf = async () => {
+    if (!permissions.can_generate_documents) {
+      alert('No tienes permisos para generar documentos.');
+      return;
+    }
         setIsGenerating(true);
 
       const formData = new FormData();
@@ -618,10 +659,12 @@ export default function ProgramView() {
 
           {/* --- ÁREA DE ACCIONES (CON BOTÓN MODIFICADO) --- */}
           <div className="flex items-center gap-4">
-              <Button variant="default" onClick={handleGeneratePdf} disabled={isGenerating}>
-                  <FileDown className="h-4 w-4 mr-2" />
-                  {isGenerating ? 'Generando...' : 'Generar Documento'}
-              </Button>
+              {permissions.can_generate_documents && (
+                <Button variant="default" onClick={handleGeneratePdf} disabled={isGenerating}>
+                    <FileDown className="h-4 w-4 mr-2" />
+                    {isGenerating ? 'Generando...' : 'Generar Documento'}
+                </Button>
+              )}
               <div className="text-right">
                   <p className="text-lg font-bold">{progress}% Completado</p>
                   <Progress value={progress} className="w-48 mt-1" />
@@ -716,7 +759,8 @@ export default function ProgramView() {
                                         >
                                             <Eye className="h-4 w-4 mr-2"/>Ver
                                         </Button>
-                                        <Dialog open={uploadOpenFor === annex.id} onOpenChange={(o) => setUploadOpenFor(o ? annex.id : null)}>
+                                        {permissions.can_upload_annexes && (
+                                          <Dialog open={uploadOpenFor === annex.id} onOpenChange={(o) => setUploadOpenFor(o ? annex.id : null)}>
                                             <DialogTrigger asChild>
                                                 <Button variant="default" size="sm"><Upload className="h-4 w-4 mr-2"/>Subir</Button>
                                             </DialogTrigger>
@@ -763,8 +807,9 @@ export default function ProgramView() {
                                                     <Input type="file" accept={typeAccept[annex.type]} multiple={annex.type==='IMAGES'} onChange={(e) => handleAnnexUpload(annex.id, e)} />
                                                 )}
                                             </DialogContent>
-                                        </Dialog>
-                                        {(annex.files.length > 0 || (annex.content_type === 'text' && annex.content_text)) && (
+                                          </Dialog>
+                                        )}
+                                        {permissions.can_delete_annexes && (annex.files.length > 0 || (annex.content_type === 'text' && annex.content_text)) && (
                                             <Button variant="ghost" size="icon" onClick={() => clearAnnexFiles(annex.id)} title="Quitar contenido">
                                                 <Trash2 className="h-4 w-4"/>
                                             </Button>
@@ -897,7 +942,7 @@ export default function ProgramView() {
               {currentAnnex.files.map((f: any, i) => (
                 <div key={f.id || i} className="relative group border rounded-lg overflow-hidden">
                   <img src={getFileUrl(f)} alt={`img-${i}`} className="w-full h-40 object-cover" />
-                  {f.id && (
+                  {permissions.can_delete_annexes && f.id && (
                     <Button
                       variant="destructive"
                       size="icon"

@@ -59,6 +59,7 @@ export default function UsersList({ users: serverUsers = [], companies = [], can
             email: userData.correo,
             rol: String(userData.rol).toLowerCase(),
             company_ids: userData.empresasAsociadas,
+            permissions: userData.permisos || {},
         } as any;
 
         if (editingUser) {
@@ -139,6 +140,7 @@ export default function UsersList({ users: serverUsers = [], companies = [], can
                             <TableRow>
                                 <TableHead>ID</TableHead>
                                 <TableHead>Nombre</TableHead>
+                                <TableHead>Usuario</TableHead>
                                 <TableHead>Rol</TableHead>
                                 <TableHead>Correo</TableHead>
                                 <TableHead>Acciones</TableHead>

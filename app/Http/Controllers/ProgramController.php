@@ -11,6 +11,7 @@ use App\Models\Annex;
 use App\Models\CompanyAnnexSubmission;
 use App\Models\CompanyPoeRecord;
 use App\Models\Poe;
+use App\Models\CompanyUserPermission;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
@@ -116,6 +117,7 @@ class ProgramController extends Controller
                     'table_data' => 'required|array|min:1',
                     'table_data.*' => 'array',
                 ]);
+                $this->ensureCompanyPermission($request, (int)$validated['company_id'], 'upload');
             } catch (ValidationException $ve) {
                 Log::warning('Validation failed for table annex', [
                     'errors' => $ve->errors(),
@@ -184,6 +186,7 @@ class ProgramController extends Controller
                     'company_id' => 'required|exists:companies,id',
                     'content_text' => 'required|string|max:65535', // Text content
                 ]);
+                $this->ensureCompanyPermission($request, (int)$validated['company_id'], 'upload');
             } catch (ValidationException $ve) {
                 Log::warning('Validation failed for text annex', [
                     'errors' => $ve->errors(),
@@ -249,6 +252,7 @@ class ProgramController extends Controller
                     'company_id' => 'required|exists:companies,id',
                     'file' => 'required|file|max:10240', // 10MB max
                 ]);
+                $this->ensureCompanyPermission($request, (int)$validated['company_id'], 'upload');
             } catch (ValidationException $ve) {
                 Log::warning('Validation failed for file/image annex', [
                     'errors' => $ve->errors(),
@@ -295,6 +299,8 @@ class ProgramController extends Controller
         $validated = $request->validate([
             'company_id' => 'required|exists:companies,id',
         ]);
+        $this->ensureCompanyPermission($request, (int)$validated['company_id'], 'delete');
+        $this->ensureCompanyPermission($request, (int)$validated['company_id'], 'delete');
 
         try {
             // Obtener todas las submisiones para este anexo
@@ -394,6 +400,7 @@ class ProgramController extends Controller
             'anexos.*.id' => 'nullable|exists:annexes,id',
             'anexos.*.archivo' => 'nullable|file|max:10240'
         ]);
+        $this->ensureCompanyPermission($request, (int)$validated['company_id'], 'generate');
 
         $tempDir = storage_path('app/temp');
         if (!File::isDirectory($tempDir)) {
@@ -3186,9 +3193,77 @@ class ProgramController extends Controller
             }
         }
 
+        $permissionsPayload = [
+            'can_view_annexes' => true,
+            'can_upload_annexes' => $isAdmin,
+            'can_delete_annexes' => $isAdmin,
+            'can_generate_documents' => $isAdmin,
+        ];
+
+        if ($companyId && ! $isAdmin && $user) {
+            $perm = CompanyUserPermission::where('user_id', $user->id)
+                ->where('company_id', $companyId)
+                ->first();
+
+            if ($perm) {
+                $permissionsPayload = [
+                    'can_view_annexes' => (bool)$perm->can_view_annexes,
+                    'can_upload_annexes' => (bool)$perm->can_upload_annexes,
+                    'can_delete_annexes' => (bool)$perm->can_delete_annexes,
+                    'can_generate_documents' => (bool)$perm->can_generate_documents,
+                ];
+            } else {
+                // default: solo ver
+                $permissionsPayload = [
+                    'can_view_annexes' => true,
+                    'can_upload_annexes' => false,
+                    'can_delete_annexes' => false,
+                    'can_generate_documents' => false,
+                ];
+            }
+        }
+
         return Inertia::render('ProgramView', [
             'program' => $payload,
             'company' => $companyPayload,
+            'permissions' => $permissionsPayload,
         ]);
+    }
+
+    private function ensureCompanyPermission(Request $request, int $companyId, string $ability): void
+    {
+        $user = $request->user();
+        if (! $user) {
+            abort(403);
+        }
+
+        $role = strtolower((string) ($user->rol ?? ''));
+        if (in_array($role, ['admin', 'administrador', 'super-admin'], true)) {
+            return;
+        }
+
+        $permission = CompanyUserPermission::where('user_id', $user->id)
+            ->where('company_id', $companyId)
+            ->first();
+
+        $map = [
+            'view' => 'can_view_annexes',
+            'upload' => 'can_upload_annexes',
+            'delete' => 'can_delete_annexes',
+            'generate' => 'can_generate_documents',
+        ];
+
+        $column = $map[$ability] ?? 'can_view_annexes';
+
+        if (! $permission) {
+            if ($ability === 'view') {
+                return;
+            }
+            abort(403, 'No tienes permisos para esta acción');
+        }
+
+        if (! (bool) $permission->{$column}) {
+            abort(403, 'No tienes permisos para esta acción');
+        }
     }
 }
