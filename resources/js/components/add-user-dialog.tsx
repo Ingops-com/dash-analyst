@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, ChangeEvent } from 'react';
+import { useState, useEffect, ChangeEvent } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -171,134 +171,276 @@ export function AddUserDialog({ isOpen, onClose, onSaveUser, userToEdit, compani
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-lg">
-                <DialogHeader>
-                    <DialogTitle>{userToEdit ? 'Editar Usuario' : 'Agregar Nuevo Usuario'}</DialogTitle>
+            <DialogContent
+                className="
+                    max-w-4xl
+                    w-[95vw]
+                    sm:w-full
+                    max-h-[90vh]
+                    flex
+                    flex-col
+                    overflow-hidden
+                "
+            >
+                <DialogHeader className="pb-2 border-b">
+                    <DialogTitle>
+                        {userToEdit ? 'Editar Usuario' : 'Agregar Nuevo Usuario'}
+                    </DialogTitle>
                     <DialogDescription>
-                        {userToEdit ? 'Modifica los datos del usuario.' : 'Completa los campos para agregar un nuevo usuario.'}
+                        {userToEdit
+                            ? 'Modifica los datos del usuario.'
+                            : 'Completa los campos para agregar un nuevo usuario.'}
                     </DialogDescription>
                 </DialogHeader>
-                <div className="grid gap-4 py-4">
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="nombre" className="text-right">Nombre</Label>
-                        <Input id="nombre" value={formData.nombre} onChange={handleChange} className="col-span-3" />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="username" className="text-right">Usuario</Label>
-                        <Input id="username" value={formData.username} onChange={handleChange} className="col-span-3" />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="password" className="text-right">Contraseña</Label>
-                        <Input id="password" type="password" value={formData.password} onChange={handleChange} className="col-span-3" placeholder={userToEdit ? 'Dejar en blanco para no cambiar' : ''} />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="correo" className="text-right">Correo</Label>
-                        <Input id="correo" type="email" value={formData.correo} onChange={handleChange} className="col-span-3" />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="rol" className="text-right">Rol</Label>
-                        <Select onValueChange={handleSelectChange} value={formData.rol}>
-                            <SelectTrigger className="col-span-3"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="usuario">Usuario</SelectItem>
-                                <SelectItem value="analista">Analista</SelectItem>
-                                <SelectItem value="admin">Admin</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
+
+                {/* Contenido scrollable */}
+                <div className="flex-1 overflow-y-auto space-y-6 py-4 pr-1">
+                    {/* Datos básicos */}
+                    <section className="space-y-4">
+                        <h4 className="font-semibold text-sm text-muted-foreground">
+                            Datos del usuario
+                        </h4>
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-1 md:grid-cols-4 items-center gap-2 md:gap-4">
+                                <Label htmlFor="nombre" className="md:text-right">
+                                    Nombre
+                                </Label>
+                                <Input
+                                    id="nombre"
+                                    value={formData.nombre}
+                                    onChange={handleChange}
+                                    className="md:col-span-3"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-4 items-center gap-2 md:gap-4">
+                                <Label htmlFor="username" className="md:text-right">
+                                    Usuario
+                                </Label>
+                                <Input
+                                    id="username"
+                                    value={formData.username}
+                                    onChange={handleChange}
+                                    className="md:col-span-3"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-4 items-center gap-2 md:gap-4">
+                                <Label htmlFor="password" className="md:text-right">
+                                    Contraseña
+                                </Label>
+                                <Input
+                                    id="password"
+                                    type="password"
+                                    value={formData.password}
+                                    onChange={handleChange}
+                                    className="md:col-span-3"
+                                    placeholder={userToEdit ? 'Dejar en blanco para no cambiar' : ''}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-4 items-center gap-2 md:gap-4">
+                                <Label htmlFor="correo" className="md:text-right">
+                                    Correo
+                                </Label>
+                                <Input
+                                    id="correo"
+                                    type="email"
+                                    value={formData.correo}
+                                    onChange={handleChange}
+                                    className="md:col-span-3"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-4 items-center gap-2 md:gap-4">
+                                <Label htmlFor="rol" className="md:text-right">
+                                    Rol
+                                </Label>
+                                <Select onValueChange={handleSelectChange} value={formData.rol}>
+                                    <SelectTrigger className="md:col-span-3">
+                                        <SelectValue placeholder="Selecciona un rol" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="usuario">Usuario</SelectItem>
+                                        <SelectItem value="analista">Analista</SelectItem>
+                                        <SelectItem value="admin">Admin</SelectItem>
+                                        <SelectItem value="super-admin">Super Admin</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                    </section>
+
+                    {String(formData.rol).toLowerCase() !== 'super-admin' && (
+                        <>
+                            <Separator />
+
+                            {/* Asignar empresas */}
+                            <section className="space-y-4">
+                                <div>
+                                    <h4 className="font-medium">Asignar Empresas</h4>
+                                    <p className="text-sm text-muted-foreground">
+                                        Habilita las empresas que este usuario puede gestionar.
+                                    </p>
+                                </div>
+
+                                <Input
+                                    placeholder="Buscar empresa por nombre o NIT..."
+                                    value={companySearch}
+                                    onChange={(e) => setCompanySearch(e.target.value)}
+                                />
+
+                                <div className="max-h-52 overflow-y-auto space-y-2 pr-2">
+                                    {filteredCompanies.map((empresa) => {
+                                        const isEnabled = formData.empresasAsociadas.includes(empresa.id);
+                                        return (
+                                            <div
+                                                key={empresa.id}
+                                                className="flex items-center justify-between p-2 border rounded-md"
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <Avatar>
+                                                        <AvatarImage src={empresa.logo} alt={empresa.nombre} />
+                                                        <AvatarFallback>
+                                                            {empresa.nombre.substring(0, 2)}
+                                                        </AvatarFallback>
+                                                    </Avatar>
+                                                    <div>
+                                                        <p
+                                                            className="font-semibold truncate max-w-[200px]"
+                                                            title={empresa.nombre}
+                                                        >
+                                                            {empresa.nombre}
+                                                        </p>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            {empresa.nit}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <Button
+                                                    variant={isEnabled ? 'secondary' : 'outline'}
+                                                    size="sm"
+                                                    onClick={() => toggleEmpresa(empresa.id)}
+                                                >
+                                                    {isEnabled ? 'Deshabilitar' : 'Habilitar'}
+                                                </Button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </section>
+                        </>
+                    )}
+
+                    {formData.empresasAsociadas.length > 0 && (
+                        <>
+                            <Separator />
+
+                            {/* Permisos por empresa */}
+                            <section className="space-y-4">
+                                <div>
+                                    <h4 className="font-medium">Permisos por Empresa</h4>
+                                    <p className="text-sm text-muted-foreground">
+                                        Define qué puede hacer este usuario en cada empresa asignada.
+                                    </p>
+                                </div>
+
+                                <div className="space-y-3">
+                                    {formData.empresasAsociadas.map((companyId) => {
+                                        const empresa = companies.find((c) => c.id === companyId);
+                                        const perms = companyPermissions[companyId] || buildDefaultPermissions();
+                                        return (
+                                            <div
+                                                key={companyId}
+                                                className="border rounded-md p-3 space-y-3"
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <p className="font-semibold">
+                                                            {empresa?.nombre ?? `Empresa ${companyId}`}
+                                                        </p>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            {empresa?.nit}
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                    <label className="flex items-center justify-between border rounded-md px-3 py-2 text-sm">
+                                                        <span>Ver anexos</span>
+                                                        <Switch
+                                                            checked={perms.can_view_annexes}
+                                                            onCheckedChange={(checked) =>
+                                                                handlePermissionChange(
+                                                                    companyId,
+                                                                    'can_view_annexes',
+                                                                    checked
+                                                                )
+                                                            }
+                                                        />
+                                                    </label>
+
+                                                    <label className="flex items-center justify-between border rounded-md px-3 py-2 text-sm">
+                                                        <span>Subir anexos</span>
+                                                        <Switch
+                                                            checked={perms.can_upload_annexes}
+                                                            disabled={!perms.can_view_annexes}
+                                                            onCheckedChange={(checked) =>
+                                                                handlePermissionChange(
+                                                                    companyId,
+                                                                    'can_upload_annexes',
+                                                                    checked
+                                                                )
+                                                            }
+                                                        />
+                                                    </label>
+
+                                                    <label className="flex items-center justify-between border rounded-md px-3 py-2 text-sm">
+                                                        <span>Eliminar anexos</span>
+                                                        <Switch
+                                                            checked={perms.can_delete_annexes}
+                                                            disabled={!perms.can_upload_annexes}
+                                                            onCheckedChange={(checked) =>
+                                                                handlePermissionChange(
+                                                                    companyId,
+                                                                    'can_delete_annexes',
+                                                                    checked
+                                                                )
+                                                            }
+                                                        />
+                                                    </label>
+
+                                                    <label className="flex items-center justify-between border rounded-md px-3 py-2 text-sm">
+                                                        <span>Generar documento</span>
+                                                        <Switch
+                                                            checked={perms.can_generate_documents}
+                                                            disabled={!perms.can_view_annexes}
+                                                            onCheckedChange={(checked) =>
+                                                                handlePermissionChange(
+                                                                    companyId,
+                                                                    'can_generate_documents',
+                                                                    checked
+                                                                )
+                                                            }
+                                                        />
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </section>
+                        </>
+                    )}
                 </div>
 
-                {String(formData.rol).toLowerCase() !== 'super-admin' && (
-                    <>
-                        <Separator />
-                        <div className="space-y-4 pt-4">
-                            <div>
-                                <h4 className="font-medium">Asignar Empresas</h4>
-                                <p className="text-sm text-muted-foreground">Habilita las empresas que este usuario puede gestionar.</p>
-                            </div>
-                            <Input
-                                placeholder="Buscar empresa por nombre o NIT..."
-                                value={companySearch}
-                                onChange={(e) => setCompanySearch(e.target.value)}
-                            />
-                            <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
-                                {filteredCompanies.map((empresa) => {
-                                    const isEnabled = formData.empresasAsociadas.includes(empresa.id);
-                                    return (
-                                        <div key={empresa.id} className="flex items-center justify-between p-2 border rounded-md">
-                                            <div className="flex items-center gap-3">
-                                                <Avatar>
-                                                    <AvatarImage src={empresa.logo} alt={empresa.nombre} />
-                                                    <AvatarFallback>{empresa.nombre.substring(0, 2)}</AvatarFallback>
-                                                </Avatar>
-                                                <div>
-                                                    <p className="font-semibold truncate max-w-[200px]" title={empresa.nombre}>{empresa.nombre}</p>
-                                                    <p className="text-xs text-muted-foreground">{empresa.nit}</p>
-                                                </div>
-                                            </div>
-                                            <Button
-                                                variant={isEnabled ? 'secondary' : 'outline'}
-                                                size="sm"
-                                                onClick={() => toggleEmpresa(empresa.id)}
-                                            >
-                                                {isEnabled ? 'Deshabilitar' : 'Habilitar'}
-                                            </Button>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    </>
-                )}
-
-                {formData.empresasAsociadas.length > 0 && (
-                    <>
-                        <Separator />
-                        <div className="space-y-4 pt-4">
-                            <div>
-                                <h4 className="font-medium">Permisos por Empresa</h4>
-                                <p className="text-sm text-muted-foreground">Define qué puede hacer este usuario en cada empresa asignada.</p>
-                            </div>
-                            <div className="space-y-3">
-                                {formData.empresasAsociadas.map((companyId) => {
-                                    const empresa = companies.find((c) => c.id === companyId);
-                                    const perms = companyPermissions[companyId] || buildDefaultPermissions();
-                                    return (
-                                        <div key={companyId} className="border rounded-md p-3 space-y-2">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <p className="font-semibold">{empresa?.nombre ?? `Empresa ${companyId}`}</p>
-                                                    <p className="text-xs text-muted-foreground">{empresa?.nit}</p>
-                                                </div>
-                                            </div>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                                <label className="flex items-center justify-between border rounded-md px-3 py-2 text-sm">
-                                                    <span>Ver anexos</span>
-                                                    <Switch checked={perms.can_view_annexes} onCheckedChange={(checked) => handlePermissionChange(companyId, 'can_view_annexes', checked)} />
-                                                </label>
-                                                <label className="flex items-center justify-between border rounded-md px-3 py-2 text-sm">
-                                                    <span>Subir anexos</span>
-                                                    <Switch checked={perms.can_upload_annexes} disabled={!perms.can_view_annexes} onCheckedChange={(checked) => handlePermissionChange(companyId, 'can_upload_annexes', checked)} />
-                                                </label>
-                                                <label className="flex items-center justify-between border rounded-md px-3 py-2 text-sm">
-                                                    <span>Eliminar anexos</span>
-                                                    <Switch checked={perms.can_delete_annexes} disabled={!perms.can_upload_annexes} onCheckedChange={(checked) => handlePermissionChange(companyId, 'can_delete_annexes', checked)} />
-                                                </label>
-                                                <label className="flex items-center justify-between border rounded-md px-3 py-2 text-sm">
-                                                    <span>Generar documento</span>
-                                                    <Switch checked={perms.can_generate_documents} disabled={!perms.can_view_annexes} onCheckedChange={(checked) => handlePermissionChange(companyId, 'can_generate_documents', checked)} />
-                                                </label>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    </>
-                )}
-
-                <DialogFooter>
-                    <Button type="submit" onClick={handleSubmit}>Guardar Cambios</Button>
+                <DialogFooter className="pt-2 border-t">
+                    <Button type="button" variant="outline" onClick={onClose}>
+                        Cancelar
+                    </Button>
+                    <Button type="submit" onClick={handleSubmit}>
+                        Guardar Cambios
+                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
