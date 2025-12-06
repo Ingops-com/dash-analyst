@@ -16,6 +16,7 @@ class Annex extends Model
         'codigo_anexo',
         'placeholder',
         'content_type',
+        'planilla_view',
         'tipo',
         'status',
         'table_columns',

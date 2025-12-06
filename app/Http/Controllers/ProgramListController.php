@@ -61,10 +61,10 @@ class ProgramListController extends Controller
         $validated = $request->validate([
             'nombre' => 'required|string|max:255',
             'codigo_anexo' => 'required|string|max:255|unique:annexes,codigo_anexo',
-            // Enforce enum values to match DB schema and avoid truncation
             'tipo' => 'required|in:ISO 22000,PSB,Invima',
             'placeholder' => 'nullable|string|max:255',
-            'content_type' => 'required|in:image,text,table',
+            'content_type' => 'required|in:image,text,table,planilla',
+            'planilla_view' => 'nullable|string|max:100',
             'programIds' => 'required|array|min:1',
             'programIds.*' => 'exists:programs,id',
             'table_columns' => 'nullable|array',
@@ -78,6 +78,7 @@ class ProgramListController extends Controller
             'codigo_anexo' => $validated['codigo_anexo'],
             'placeholder' => $validated['placeholder'] ?? null,
             'content_type' => $validated['content_type'],
+            'planilla_view' => $validated['planilla_view'] ?? null,
             'tipo' => $validated['tipo'],
             // Valid enum values: 'En revisión', 'Aprobado', 'Obsoleto'
             'status' => 'En revisión',
@@ -107,7 +108,8 @@ class ProgramListController extends Controller
             'codigo_anexo' => 'required|string|max:255|unique:annexes,codigo_anexo,' . $id,
             'tipo' => 'required|in:ISO 22000,PSB,Invima',
             'placeholder' => 'nullable|string|max:255',
-            'content_type' => 'required|in:image,text,table',
+            'content_type' => 'required|in:image,text,table,planilla',
+            'planilla_view' => 'nullable|string|max:100',
             'programIds' => 'required|array|min:1',
             'programIds.*' => 'exists:programs,id',
             'table_columns' => 'nullable|array',
@@ -121,6 +123,7 @@ class ProgramListController extends Controller
             'codigo_anexo' => $validated['codigo_anexo'],
             'placeholder' => $validated['placeholder'] ?? null,
             'content_type' => $validated['content_type'],
+            'planilla_view' => $validated['planilla_view'] ?? null,
             'tipo' => $validated['tipo'],
             'table_columns' => $validated['content_type'] === 'table' ? ($validated['table_columns'] ?? []) : null,
             'table_header_color' => $validated['content_type'] === 'table' ? ($validated['table_header_color'] ?? '#153366') : null,
@@ -166,6 +169,7 @@ class ProgramListController extends Controller
                         'consecutivo' => $annex->id, // o un campo específico si existe
                         'programId' => $annex->pivot->program_id,
                         'content_type' => $annex->content_type,
+                            'planilla_view' => $annex->planilla_view,
                         'placeholder' => $annex->placeholder,
                         'table_columns' => $annex->table_columns,
                         'table_header_color' => $annex->table_header_color,

@@ -12,6 +12,8 @@ import {
     PlusCircle, Eye, Upload, FileCheck2, XCircle, Images, FileText, FileDigit, File, Trash2, FileDown
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { PlanillaSalubridad } from '@/components/PlanillaSalubridad';
+import { ProotTemplate } from '@/components/ProotTemplate';
 
 // Tipos, Datos y Helpers (sin cambios)
 export type AnnexType = 'IMAGES' | 'PDF' | 'WORD' | 'XLSX' | 'FORMATO';
@@ -24,10 +26,12 @@ interface Annex {
     uploaded_at?: string; 
     type: AnnexType; 
     content_type?: string; 
+    planilla_view?: string;
     content_text?: string; 
     table_columns?: string[];
     table_header_color?: string;
     table_data?: Record<string, string>[];
+    planilla_data?: any;
     files: AnnexFile[] 
 }
 interface Program { id: number; name: string; annexes: Annex[]; poes: Poe[] }
@@ -36,6 +40,12 @@ const typeAccept: Record<AnnexType, string> = { IMAGES: 'image/*', PDF: 'applica
 const typeIcon: Record<AnnexType, any> = { IMAGES: Images, PDF: FileText, WORD: FileText, XLSX: FileDigit, FORMATO: File };
 
 export default function ProgramView() {
+    // Mapeo de componentes de planilla disponibles
+    const planillaComponents: Record<string, any> = {
+      PlanillaSalubridad,
+      ProotTemplate,
+      // Agrega aquí más componentes si los tienes
+    };
   // Usar props enviados por el servidor si existen
   const { props } = usePage()
   const serverProgram = (props as any).program ?? null
@@ -58,6 +68,7 @@ export default function ProgramView() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [textContent, setTextContent] = useState<Record<number, string>>({});
   const [tableData, setTableData] = useState<Record<number, Record<string, string>[]>>({});
+  const [planillaData, setPlanillaData] = useState<Record<number, any>>({});
 
   // Obtener company_id dinámicamente
   const serverCompany = (props as any).company as any | undefined;
@@ -70,6 +81,7 @@ export default function ProgramView() {
       // Cargar content_text existente para anexos de texto
       const textMap: Record<number, string> = {};
       const tableMap: Record<number, Record<string, string>[]> = {};
+      const planillaMap: Record<number, any> = {};
       (serverProgram as Program).annexes.forEach(annex => {
         if (annex.content_type === 'text' && annex.content_text) {
           textMap[annex.id] = annex.content_text;
@@ -77,9 +89,13 @@ export default function ProgramView() {
         if (annex.content_type === 'table' && annex.table_data) {
           tableMap[annex.id] = annex.table_data;
         }
+        if (annex.content_type === 'planilla' && annex.planilla_data) {
+          planillaMap[annex.id] = annex.planilla_data;
+        }
       });
       setTextContent(textMap);
       setTableData(tableMap);
+      setPlanillaData(planillaMap);
     }
   }, [serverProgram]);
 
@@ -91,10 +107,11 @@ export default function ProgramView() {
     const completed = annexesForProgress.filter(a => {
       if (a.content_type === 'text') return !!a.content_text;
       if (a.content_type === 'table') return (tableData[a.id] && tableData[a.id].length > 0);
+      if (a.content_type === 'planilla') return !!planillaData[a.id];
       return a.files.length > 0;
     }).length;
     return Math.round((completed / total) * 100);
-  }, [program, tableData]);
+  }, [program, tableData, planillaData]);
   const handleAddPoe = () => setProgram(prev => ({ ...prev, poes: [{ id: Date.now(), date: new Date().toLocaleDateString('es-CO') }, ...prev.poes] }));
   
   const handleAnnexUpload = async (annexId: number, e: ChangeEvent<HTMLInputElement>) => {
@@ -308,6 +325,57 @@ export default function ProgramView() {
     } catch (error) {
       console.error('Error saving table data:', error);
       alert(error instanceof Error ? error.message : 'Error al guardar la tabla');
+    }
+  };
+
+  const handlePlanillaSubmit = async (annexId: number, data: any) => {
+    // Get company ID from props
+    const serverCompany = (props as any).company as any | undefined;
+    if (!serverCompany || !serverCompany.id) {
+      alert('No se pudo identificar la empresa. Por favor, recarga la página.');
+      return;
+    }
+
+    // Get CSRF token
+    const csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
+    if (!csrfTokenMeta) {
+      alert('Token CSRF no encontrado. Por favor, recarga la página.');
+      return;
+    }
+    const csrfToken = (csrfTokenMeta as HTMLMetaElement).content;
+
+    try {
+      const response = await fetch(`/programa/${program.id}/annex/${annexId}/upload`, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-TOKEN': csrfToken,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          company_id: serverCompany.id,
+          planilla_data: data,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Error al guardar la planilla' }));
+        throw new Error(errorData.message || 'Error al guardar la planilla');
+      }
+
+      alert('Planilla guardada exitosamente');
+
+      // Recargar la página para obtener los datos actualizados del servidor
+      router.reload({
+        only: ['program'],
+        onSuccess: () => {
+          setUploadOpenFor(null);
+        }
+      });
+
+    } catch (error) {
+      console.error('Error saving planilla data:', error);
+      alert(error instanceof Error ? error.message : 'Error al guardar la planilla');
     }
   };
 
@@ -672,11 +740,15 @@ export default function ProgramView() {
                             ? !!annex.content_text 
                             : annex.content_type === 'table'
                             ? (tableData[annex.id] && tableData[annex.id].length > 0)
+                            : annex.content_type === 'planilla'
+                            ? !!planillaData[annex.id]
                             : annex.files.length > 0;
                         const fileLabel = annex.content_type === 'text' 
                             ? (annex.content_text ? 'Texto proporcionado' : 'Sin texto')
                             : annex.content_type === 'table'
                             ? (tableData[annex.id] && tableData[annex.id].length > 0 ? `${tableData[annex.id].length} fila(s)` : 'Sin datos')
+                            : annex.content_type === 'planilla'
+                            ? (planillaData[annex.id] ? 'Planilla completada' : 'Sin datos')
                             : (annex.type === 'IMAGES' ? `${annex.files.length} imagen(es)` : annex.files[0]?.name || 'Sin archivo');
                         const textPreview = annex.content_type === 'text' && annex.content_text 
                             ? getTextPreview(annex.content_text, 80) 
@@ -693,6 +765,8 @@ export default function ProgramView() {
                           <Badge variant="secondary" className="text-[11px]">Texto</Badge>
                         ) : annex.content_type === 'table' ? (
                           <Badge variant="default" className="text-[11px]">Tabla</Badge>
+                        ) : annex.content_type === 'planilla' ? (
+                          <Badge variant="default" className="text-[11px] bg-purple-600">Planilla</Badge>
                         ) : (
                           <Badge variant="outline" className="text-[11px]">Imagen</Badge>
                         )}
@@ -745,26 +819,45 @@ export default function ProgramView() {
                                                   </div>
                                                 </div>
                                                 {annex.content_type === 'text' ? (
-                                                    <div className="space-y-4">
-                                                        <RichTextEditor
-                                                            content={textContent[annex.id] || ''}
-                                                            onChange={(content) => setTextContent(prev => ({ ...prev, [annex.id]: content }))}
-                                                            placeholder={`Ingresa el contenido para ${annex.name}...`}
-                                                        />
-                                                        <Button onClick={() => handleTextSubmit(annex.id)} className="w-full">
-                                                            Guardar Texto
-                                                        </Button>
-                                                    </div>
+                                                  <div className="space-y-4">
+                                                    <RichTextEditor
+                                                      content={textContent[annex.id] || ''}
+                                                      onChange={(content) => setTextContent(prev => ({ ...prev, [annex.id]: content }))}
+                                                      placeholder={`Ingresa el contenido para ${annex.name}...`}
+                                                    />
+                                                    <Button onClick={() => handleTextSubmit(annex.id)} className="w-full">
+                                                      Guardar Texto
+                                                    </Button>
+                                                  </div>
                                                 ) : annex.content_type === 'table' ? (
-                                                    <div className="space-y-4">
-                                                        {renderTableInput(annex)}
-                                                    </div>
+                                                  <div className="space-y-4">
+                                                    {renderTableInput(annex)}
+                                                  </div>
+                                                ) : annex.content_type === 'planilla' ? (
+                                                  <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+                                                    {(() => {
+                                                      const PlanillaComponent = annex.planilla_view ? planillaComponents[annex.planilla_view] : null;
+                                                      if (!PlanillaComponent) {
+                                                        return (
+                                                          <div className="text-sm text-red-500">
+                                                            No se encontró el componente de planilla seleccionado: <b>{annex.planilla_view || '—'}</b>
+                                                          </div>
+                                                        );
+                                                      }
+                                                      return (
+                                                        <PlanillaComponent
+                                                          initialData={planillaData[annex.id]}
+                                                          onSave={(data: any) => handlePlanillaSubmit(annex.id, data)}
+                                                        />
+                                                      );
+                                                    })()}
+                                                  </div>
                                                 ) : (
-                                                    <Input type="file" accept={typeAccept[annex.type]} multiple={annex.type==='IMAGES'} onChange={(e) => handleAnnexUpload(annex.id, e)} />
+                                                  <Input type="file" accept={typeAccept[annex.type]} multiple={annex.type==='IMAGES'} onChange={(e) => handleAnnexUpload(annex.id, e)} />
                                                 )}
                                             </DialogContent>
                                         </Dialog>
-                                        {(annex.files.length > 0 || (annex.content_type === 'text' && annex.content_text)) && (
+                                        {(annex.files.length > 0 || (annex.content_type === 'text' && annex.content_text) || (annex.content_type === 'planilla' && planillaData[annex.id])) && (
                                             <Button variant="ghost" size="icon" onClick={() => clearAnnexFiles(annex.id)} title="Quitar contenido">
                                                 <Trash2 className="h-4 w-4"/>
                                             </Button>

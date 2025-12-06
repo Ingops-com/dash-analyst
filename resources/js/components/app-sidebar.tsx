@@ -21,6 +21,7 @@ import {
     FileText,
     Settings as SettingsIcon,
     BookOpen,
+    Calendar,
 } from 'lucide-react';
 import AppLogo from './app-logo';
 
@@ -39,6 +40,11 @@ export function AppSidebar() {
             title: 'Dashboard',
             href: '/dashboard',
             icon: LayoutGrid,
+        },
+        {
+            title: 'Recordatorios',
+            href: '/reminders',
+            icon: Calendar,
         },
         {
             title: 'Configuración',
