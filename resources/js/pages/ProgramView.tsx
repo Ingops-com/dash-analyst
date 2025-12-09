@@ -1,4 +1,4 @@
-import { useState, useMemo, ChangeEvent, useEffect } from 'react';
+import { useState, useMemo, ChangeEvent, useEffect, useRef } from 'react';
 import { usePage, router } from '@inertiajs/react';
 import AppLayout from '@/layouts/app-layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +14,8 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { PlanillaSalubridad } from '@/components/PlanillaSalubridad';
 import { ProotTemplate } from '@/components/ProotTemplate';
+import html2canvas from 'html2canvas';
+import domtoimage from 'dom-to-image';
 
 // Tipos, Datos y Helpers (sin cambios)
 export type AnnexType = 'IMAGES' | 'PDF' | 'WORD' | 'XLSX' | 'FORMATO';
@@ -32,6 +34,7 @@ interface Annex {
     table_header_color?: string;
     table_data?: Record<string, string>[];
     planilla_data?: any;
+    screenshot_path?: string;
     files: AnnexFile[] 
 }
 interface Program { id: number; name: string; annexes: Annex[]; poes: Poe[] }
@@ -69,6 +72,10 @@ export default function ProgramView() {
   const [textContent, setTextContent] = useState<Record<number, string>>({});
   const [tableData, setTableData] = useState<Record<number, Record<string, string>[]>>({});
   const [planillaData, setPlanillaData] = useState<Record<number, any>>({});
+  const [planillaScreenshots, setPlanillaScreenshots] = useState<Record<number, string>>({});
+  
+  // Refs para capturar screenshots de planillas
+  const planillaRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
   // Obtener company_id dinámicamente
   const serverCompany = (props as any).company as any | undefined;
@@ -82,6 +89,7 @@ export default function ProgramView() {
       const textMap: Record<number, string> = {};
       const tableMap: Record<number, Record<string, string>[]> = {};
       const planillaMap: Record<number, any> = {};
+      const screenshotMap: Record<number, string> = {};
       (serverProgram as Program).annexes.forEach(annex => {
         if (annex.content_type === 'text' && annex.content_text) {
           textMap[annex.id] = annex.content_text;
@@ -92,10 +100,14 @@ export default function ProgramView() {
         if (annex.content_type === 'planilla' && annex.planilla_data) {
           planillaMap[annex.id] = annex.planilla_data;
         }
+        if (annex.content_type === 'planilla' && annex.screenshot_path) {
+          screenshotMap[annex.id] = `${window.location.origin}/public-storage/${annex.screenshot_path}`;
+        }
       });
       setTextContent(textMap);
       setTableData(tableMap);
       setPlanillaData(planillaMap);
+      setPlanillaScreenshots(screenshotMap);
     }
   }, [serverProgram]);
 
@@ -328,6 +340,81 @@ export default function ProgramView() {
     }
   };
 
+  const captureScreenshot = async (annexId: number): Promise<string> => {
+    const planillaElement = planillaRefs.current[annexId];
+    if (!planillaElement) {
+      console.warn('Planilla element not found');
+      return '';
+    }
+
+    console.log('Attempting screenshot capture...');
+    
+    try {
+      // Buscar la tabla dentro del elemento de la planilla
+      const tableElement = planillaElement.querySelector('table');
+      if (!tableElement) {
+        console.warn('Table element not found in planilla');
+        return '';
+      }
+
+      // Usar dom-to-image directamente en el elemento visible de la tabla
+      // Sin clonarlo para mantener los valores de inputs y estilos computados
+      try {
+        // Suprimir errores de CORS de fuentes externas
+        const originalError = console.error;
+        console.error = (...args: any[]) => {
+          const errorStr = String(args[0]);
+          if (!errorStr.includes('SecurityError') && !errorStr.includes('cssRules')) {
+            originalError(...args);
+          }
+        };
+        
+        // Capturar directamente del elemento visible en el DOM
+        const dataUrl = await domtoimage.toPng(tableElement, {
+          cacheBust: true,
+          quality: 1,
+          pixelRatio: 2,
+          backgroundColor: '#ffffff'
+        });
+        
+        console.error = originalError;
+        
+        console.log('Screenshot captured successfully with dom-to-image, length:', dataUrl.length);
+        
+        return dataUrl;
+      } catch (domError) {
+        console.error('dom-to-image failed:', domError);
+        
+        // Fallback a html2canvas
+        try {
+          const canvas = await html2canvas(tableElement, {
+            scale: 2,
+            useCORS: false,
+            logging: false,
+            backgroundColor: '#ffffff',
+            allowTaint: true,
+            foreignObjectRendering: false,
+            imageTimeout: 0,
+            ignoreElements: (el) => {
+              return el.tagName === 'IMG' || el.tagName === 'IMAGE' || el.tagName === 'STYLE' || el.tagName === 'LINK';
+            }
+          });
+          
+          const dataUrl = canvas.toDataURL('image/png');
+          console.log('Screenshot captured with html2canvas fallback, length:', dataUrl.length);
+          
+          return dataUrl;
+        } catch (htmlError) {
+          console.error('Both capture methods failed:', htmlError);
+          return '';
+        }
+      }
+    } catch (error) {
+      console.error('Error capturing screenshot:', error);
+      return '';
+    }
+  };
+
   const handlePlanillaSubmit = async (annexId: number, data: any) => {
     // Get company ID from props
     const serverCompany = (props as any).company as any | undefined;
@@ -345,6 +432,15 @@ export default function ProgramView() {
     const csrfToken = (csrfTokenMeta as HTMLMetaElement).content;
 
     try {
+      // Capturar screenshot de la planilla
+      console.log('Starting planilla submission...');
+      const screenshotDataUrl = await captureScreenshot(annexId);
+      console.log('Screenshot obtained, length:', screenshotDataUrl.length);
+
+      // Encontrar el anexo para obtener su nombre
+      const annex = program.annexes.find(a => a.id === annexId);
+      const annexName = annex ? annex.name : `Planilla_${annexId}`;
+
       const response = await fetch(`/programa/${program.id}/annex/${annexId}/upload`, {
         method: 'POST',
         headers: {
@@ -355,6 +451,8 @@ export default function ProgramView() {
         body: JSON.stringify({
           company_id: serverCompany.id,
           planilla_data: data,
+          screenshot_data: screenshotDataUrl, // Enviar el screenshot al servidor
+          screenshot_filename: annexName, // Enviar el nombre del anexo
         }),
       });
 
@@ -363,15 +461,20 @@ export default function ProgramView() {
         throw new Error(errorData.message || 'Error al guardar la planilla');
       }
 
-      alert('Planilla guardada exitosamente');
+      const responseData = await response.json();
+      
+      // Actualizar el estado local con la nueva imagen
+      // El screenshot_path puede estar en la raíz o dentro de submission
+      const screenshotPath = responseData.screenshot_path || responseData.submission?.screenshot_path;
+      if (screenshotPath) {
+        setPlanillaScreenshots(prev => ({
+          ...prev,
+          [annexId]: `${window.location.origin}/public-storage/${screenshotPath}`
+        }));
+      }
 
-      // Recargar la página para obtener los datos actualizados del servidor
-      router.reload({
-        only: ['program'],
-        onSuccess: () => {
-          setUploadOpenFor(null);
-        }
-      });
+      alert('Planilla guardada exitosamente');
+      setUploadOpenFor(null);
 
     } catch (error) {
       console.error('Error saving planilla data:', error);
@@ -753,6 +856,11 @@ export default function ProgramView() {
                         const textPreview = annex.content_type === 'text' && annex.content_text 
                             ? getTextPreview(annex.content_text, 80) 
                             : null;
+                        const planillaPreview = annex.content_type === 'planilla' 
+                            ? (annex.screenshot_path 
+                                ? `${window.location.origin}/public-storage/${annex.screenshot_path}`
+                                : planillaScreenshots[annex.id])
+                            : null;
                         return (
                             <Card key={annex.id} className="border-muted/60">
                                 <CardContent className="p-4">
@@ -780,6 +888,16 @@ export default function ProgramView() {
                                                     {textPreview}
                                                 </div>
                                             )}
+                                            {planillaPreview && (
+                                                <div className="mt-2 border rounded-md overflow-hidden">
+                                                    <img 
+                                                        src={planillaPreview} 
+                                                        alt="Vista previa de planilla" 
+                                                        className="w-full h-32 object-cover object-top cursor-pointer hover:opacity-80 transition-opacity"
+                                                        onClick={() => openViewAnnex(annex)}
+                                                    />
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="flex items-center gap-2 flex-shrink-0">
                                         <Button 
@@ -794,7 +912,7 @@ export default function ProgramView() {
                                             <DialogTrigger asChild>
                                                 <Button variant="default" size="sm"><Upload className="h-4 w-4 mr-2"/>Subir</Button>
                                             </DialogTrigger>
-                                            <DialogContent>
+                                            <DialogContent className="sm:max-w-[800px] max-h-[85vh] overflow-y-auto">
                                                 <DialogHeader>
                                                     <DialogTitle>Subir anexo: {annex.name}</DialogTitle>
                                                 </DialogHeader>
@@ -834,7 +952,10 @@ export default function ProgramView() {
                                                     {renderTableInput(annex)}
                                                   </div>
                                                 ) : annex.content_type === 'planilla' ? (
-                                                  <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+                                                  <div 
+                                                    ref={(el) => planillaRefs.current[annex.id] = el}
+                                                    className="space-y-4 max-h-[70vh] overflow-y-auto"
+                                                  >
                                                     {(() => {
                                                       const PlanillaComponent = annex.planilla_view ? planillaComponents[annex.planilla_view] : null;
                                                       if (!PlanillaComponent) {
@@ -983,6 +1104,30 @@ export default function ProgramView() {
           {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.content_type === 'table' && (!currentAnnex.table_data || currentAnnex.table_data.length === 0) && (
             <div className="p-6 border rounded-lg bg-muted/30 text-center">
               <p className="text-muted-foreground">No hay datos en esta tabla.</p>
+            </div>
+          )}
+          {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.content_type === 'planilla' && (currentAnnex.screenshot_path || planillaScreenshots[currentAnnex.id]) && (
+            <div className="p-6 border rounded-lg bg-white dark:bg-gray-900">
+              <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground border-b pb-2">
+                <FileDigit className="h-4 w-4" />
+                <span>Vista previa de la planilla</span>
+              </div>
+              <div className="overflow-auto border rounded-lg">
+                <img 
+                  src={
+                    currentAnnex.screenshot_path 
+                      ? `${window.location.origin}/public-storage/${currentAnnex.screenshot_path}`
+                      : planillaScreenshots[currentAnnex.id]
+                  }
+                  alt="Planilla completada" 
+                  className="w-full h-auto"
+                />
+              </div>
+            </div>
+          )}
+          {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.content_type === 'planilla' && !currentAnnex.screenshot_path && !planillaScreenshots[currentAnnex.id] && (
+            <div className="p-6 border rounded-lg bg-muted/30 text-center">
+              <p className="text-muted-foreground">No hay vista previa disponible para esta planilla.</p>
             </div>
           )}
           {viewOpenFor.kind === 'ANNEX' && currentAnnex && currentAnnex.type === 'IMAGES' && currentAnnex.files.length > 0 && (
