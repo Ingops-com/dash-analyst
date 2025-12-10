@@ -44,6 +44,9 @@ interface Company {
   status?: 'activa' | 'inactiva'
   assigned?: boolean
   notes?: string
+  logo_izquierdo?: string
+  logo_derecho?: string
+  logo_pie_de_pagina?: string
 }
 
 // --- HELPERS ---
@@ -72,8 +75,10 @@ export default function Companies() {
   const [saving, setSaving] = useState(false)
 
   const [formData, setFormData] = useState<Partial<Company>>({})
-  const [logoFiles, setLogoFiles] = useState<File[]>([])
-  const [logoPreviews, setLogoPreviews] = useState<string[]>([])
+  const [logoIzquierdoFile, setLogoIzquierdoFile] = useState<File | null>(null)
+  const [logoDerechoFile, setLogoDerechoFile] = useState<File | null>(null)
+  const [logoIzquierdoPreview, setLogoIzquierdoPreview] = useState<string>('')
+  const [logoDerechoPreview, setLogoDerechoPreview] = useState<string>('')
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const handleViewCompany = (company: Company) => {
@@ -96,8 +101,10 @@ export default function Companies() {
   useEffect(() => {
     if (!isEditDialogOpen || !selectedCompany) return
     setFormData({ ...selectedCompany })
-    setLogoPreviews(selectedCompany.logos || [])
-    setLogoFiles([])
+    setLogoIzquierdoPreview(selectedCompany.logo_izquierdo ? `${selectedCompany.logo_izquierdo.startsWith('http') ? selectedCompany.logo_izquierdo : '/storage/' + selectedCompany.logo_izquierdo}` : '')
+    setLogoDerechoPreview(selectedCompany.logo_derecho ? `${selectedCompany.logo_derecho.startsWith('http') ? selectedCompany.logo_derecho : '/storage/' + selectedCompany.logo_derecho}` : '')
+    setLogoIzquierdoFile(null)
+    setLogoDerechoFile(null)
     setErrors({})
   }, [isEditDialogOpen, selectedCompany])
 
@@ -105,22 +112,40 @@ export default function Companies() {
     if (!selectedCompany) return
     // Rellena inmediatamente con los datos actuales del servidor
     setFormData({ ...selectedCompany })
-    setLogoPreviews(selectedCompany.logos || [])
-    setLogoFiles([])
+    setLogoIzquierdoPreview(selectedCompany.logo_izquierdo ? `${selectedCompany.logo_izquierdo.startsWith('http') ? selectedCompany.logo_izquierdo : '/storage/' + selectedCompany.logo_izquierdo}` : '')
+    setLogoDerechoPreview(selectedCompany.logo_derecho ? `${selectedCompany.logo_derecho.startsWith('http') ? selectedCompany.logo_derecho : '/storage/' + selectedCompany.logo_derecho}` : '')
+    setLogoIzquierdoFile(null)
+    setLogoDerechoFile(null)
     setErrors({})
     setIsEditDialogOpen(true)
   }
 
   const updateField = (key: keyof Company, value: any) => setFormData(prev => ({ ...prev, [key]: value }))
 
-  const handleLogoChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
-    const files = e.target.files ? Array.from(e.target.files) : []
-    setLogoFiles(files)
-    setLogoPreviews(files.map(f => URL.createObjectURL(f)))
+  const handleLogoIzquierdoChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setLogoIzquierdoFile(file)
+      setLogoIzquierdoPreview(URL.createObjectURL(file))
+    }
   }
-  const removePreview = (i: number) => {
-    setLogoPreviews(prev => prev.filter((_, idx) => idx !== i))
-    setLogoFiles(prev => prev.filter((_, idx) => idx !== i))
+
+  const handleLogoDerechoChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setLogoDerechoFile(file)
+      setLogoDerechoPreview(URL.createObjectURL(file))
+    }
+  }
+
+  const removeLogoIzquierdo = () => {
+    setLogoIzquierdoFile(null)
+    setLogoIzquierdoPreview('')
+  }
+
+  const removeLogoDerechos = () => {
+    setLogoDerechoFile(null)
+    setLogoDerechoPreview('')
   }
 
   const validate = () => {
@@ -164,10 +189,14 @@ export default function Companies() {
       onFinish: () => setSaving(false),
     } as const
 
-    if (logoFiles.length) {
+    if (logoIzquierdoFile || logoDerechoFile) {
       const fd = new FormData()
       Object.entries(payload).forEach(([k, v]) => v != null && fd.append(k, String(v)))
-      logoFiles.forEach((f, i) => fd.append(`logos[${i}]`, f))
+      
+      // Agregar logos como array (compatible con el backend que espera logos[0], logos[1], etc.)
+      if (logoIzquierdoFile) fd.append('logos[0]', logoIzquierdoFile)
+      if (logoDerechoFile) fd.append('logos[1]', logoDerechoFile)
+      
       // Compat: aunque ya existe POST/PUT en backend, mantenemos _method para coherencia
       fd.append('_method', 'PUT')
       // CSRF para Laravel cuando se usa FormData
@@ -396,27 +425,37 @@ export default function Companies() {
                                   <TabsContent value="branding" className="space-y-4 pt-4">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                       <div>
-                                        <Label>Logos</Label>
-                                        <Input id="logos" type="file" multiple className="mt-2" onChange={handleLogoChange} accept="image/*" />
-                                        <p className="text-xs text-muted-foreground mt-1">Sube PNG/JPG con fondo transparente si es posible.</p>
+                                        <Label>Logo Izquierdo</Label>
+                                        <Input id="logo-izquierdo" type="file" className="mt-2" onChange={handleLogoIzquierdoChange} accept="image/*" />
+                                        <p className="text-xs text-muted-foreground mt-1">PNG/JPG con fondo transparente si es posible.</p>
                                       </div>
                                       <div>
-                                        <Label>Color de marca (hex)</Label>
-                                        <Input type="text" placeholder="#0ea5e9" />
+                                        <Label>Logo Derecho</Label>
+                                        <Input id="logo-derecho" type="file" className="mt-2" onChange={handleLogoDerechoChange} accept="image/*" />
+                                        <p className="text-xs text-muted-foreground mt-1">PNG/JPG con fondo transparente si es posible.</p>
                                       </div>
                                     </div>
-                                    {logoPreviews.length > 0 && (
-                                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                                        {logoPreviews.map((src, i) => (
-                                          <div key={i} className="relative group border rounded-lg p-2 bg-background">
-                                            <button type="button" onClick={() => removePreview(i)} className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition">
-                                              <X className="h-3.5 w-3.5" />
-                                            </button>
-                                            <img src={src} className="h-24 w-full object-contain" alt={`logo-${i}`} />
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
+                                    
+                                    <div className="grid grid-cols-2 gap-4">
+                                      {logoIzquierdoPreview && (
+                                        <div className="relative group border rounded-lg p-2 bg-background">
+                                          <button type="button" onClick={removeLogoIzquierdo} className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition">
+                                            <X className="h-3.5 w-3.5" />
+                                          </button>
+                                          <div className="text-xs text-muted-foreground mb-2">Izquierdo</div>
+                                          <img src={logoIzquierdoPreview} className="h-24 w-full object-contain" alt="logo-izquierdo" />
+                                        </div>
+                                      )}
+                                      {logoDerechoPreview && (
+                                        <div className="relative group border rounded-lg p-2 bg-background">
+                                          <button type="button" onClick={removeLogoDerechos} className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition">
+                                            <X className="h-3.5 w-3.5" />
+                                          </button>
+                                          <div className="text-xs text-muted-foreground mb-2">Derecho</div>
+                                          <img src={logoDerechoPreview} className="h-24 w-full object-contain" alt="logo-derecho" />
+                                        </div>
+                                      )}
+                                    </div>
                                   </TabsContent>
                                 </Tabs>
 
@@ -432,10 +471,19 @@ export default function Companies() {
                           </CardHeader>
 
                           <CardContent className="space-y-6">
-                            <div className="flex justify-center flex-wrap gap-4 py-4">
-                              {(selectedCompany.logos || []).map((logo, index) => (
-                                <img key={index} src={logo} alt={`Logo ${index + 1}`} className="h-20 w-20 object-contain border rounded-lg p-2 shadow-sm" />
-                              ))}
+                            <div className="flex justify-center flex-wrap gap-8 py-4">
+                              {selectedCompany.logo_izquierdo && (
+                                <div className="flex flex-col items-center">
+                                  <p className="text-xs text-muted-foreground mb-2">Logo Izquierdo</p>
+                                  <img src={`${selectedCompany.logo_izquierdo.startsWith('http') ? selectedCompany.logo_izquierdo : '/storage/' + selectedCompany.logo_izquierdo}`} alt="Logo Izquierdo" className="h-20 w-20 object-contain border rounded-lg p-2 shadow-sm" />
+                                </div>
+                              )}
+                              {selectedCompany.logo_derecho && (
+                                <div className="flex flex-col items-center">
+                                  <p className="text-xs text-muted-foreground mb-2">Logo Derecho</p>
+                                  <img src={`${selectedCompany.logo_derecho.startsWith('http') ? selectedCompany.logo_derecho : '/storage/' + selectedCompany.logo_derecho}`} alt="Logo Derecho" className="h-20 w-20 object-contain border rounded-lg p-2 shadow-sm" />
+                                </div>
+                              )}
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                               <div className="flex items-center gap-2"><Building className="h-4 w-4 text-muted-foreground" /><strong>Dirección:</strong> {selectedCompany.address}</div>

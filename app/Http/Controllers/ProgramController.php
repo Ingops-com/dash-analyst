@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
 use App\Models\Company;
 use App\Services\DocumentHeaderService;
+use App\Services\LibreOfficePdfConverter;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Str;
 use Dompdf\Dompdf;
@@ -1123,8 +1124,104 @@ class ProgramController extends Controller
                     }
 
                     $usedEngine = null;
-                    if ($this->hasMsWordCom()) {
+                    
+                    // TEMPORAL: Usar solo endpoint externo para garantizar funcionamiento
+                    // TODO: Arreglar LibreOffice local después
+                    if (!$pdfGenerated && env('PDF_CONVERSION_ENDPOINT')) {
                         try {
+                            Log::info('Intentando conversión con endpoint HTTP externo...');
+                            $httpOutputPath = $this->convertDocxToPdfWithLibreOffice($docxAbsPath, $tempStorageDir);
+                            
+                            if (!empty($httpOutputPath) && file_exists($httpOutputPath) && @filesize($httpOutputPath) > 1024) {
+                                // Guardar directamente a los paths finales
+                                $pdfContent = @file_get_contents($httpOutputPath);
+                                if ($pdfContent !== false && strlen($pdfContent) > 1024) {
+                                    $disk->put($pdfHistoryRel, $pdfContent);
+                                    $disk->put($pdfCurrentRel, $pdfContent);
+                                    $pdfGenerated = true;
+                                    $usedEngine = 'HTTP-Endpoint-External';
+                                    Log::info('PDF generado exitosamente con endpoint HTTP externo', [
+                                        'history' => $pdfHistoryRel,
+                                        'current' => $pdfCurrentRel,
+                                        'size_kb' => round(strlen($pdfContent) / 1024, 2)
+                                    ]);
+                                    @unlink($httpOutputPath); // Limpiar el archivo temporal
+                                } else {
+                                    Log::warning('No se pudo leer el contenido del PDF generado por endpoint');
+                                }
+                            } else {
+                                Log::warning('Endpoint HTTP externo no generó un PDF válido');
+                            }
+                        } catch (\Throwable $httpErr) {
+                            Log::warning('Endpoint HTTP externo no disponible o falló: ' . $httpErr->getMessage());
+                        }
+                    }
+                    
+                    // LibreOffice local deshabilitado temporalmente
+                    /*
+                    if (!$pdfGenerated && LibreOfficePdfConverter::isAvailable()) {
+                        try {
+                            Log::info('Convirtiendo a PDF con LibreOffice local...', ['version' => LibreOfficePdfConverter::getVersion()]);
+                            $libreOfficePdfPath = LibreOfficePdfConverter::convertToPdf($docxAbsPath, $tempStorageDir);
+                            
+                            if ($libreOfficePdfPath && file_exists($libreOfficePdfPath) && filesize($libreOfficePdfPath) > 1024) {
+                                // Guardar directamente a los paths finales
+                                $pdfContent = @file_get_contents($libreOfficePdfPath);
+                                if ($pdfContent !== false && strlen($pdfContent) > 1024) {
+                                    $disk->put($pdfHistoryRel, $pdfContent);
+                                    $disk->put($pdfCurrentRel, $pdfContent);
+                                    $pdfGenerated = true;
+                                    $usedEngine = 'LibreOffice-Local';
+                                    Log::info('PDF generado exitosamente con LibreOffice local', [
+                                        'pdf_path' => $libreOfficePdfPath,
+                                        'history' => $pdfHistoryRel,
+                                        'current' => $pdfCurrentRel,
+                                        'size_kb' => round(filesize($libreOfficePdfPath) / 1024, 2)
+                                    ]);
+                                    @unlink($libreOfficePdfPath); // Limpiar el archivo temporal
+                                } else {
+                                    Log::warning('No se pudo leer el contenido del PDF generado por LibreOffice');
+                                }
+                            } else {
+                                Log::warning('LibreOffice local no generó un PDF válido');
+                            }
+                        } catch (\Throwable $lo) {
+                            Log::warning('Fallo conversión con LibreOffice local: ' . $lo->getMessage());
+                        }
+                    }
+                    
+                    // 2) Fallback a endpoint HTTP externo (solo si está configurado)
+                    if (!$pdfGenerated && env('PDF_CONVERSION_ENDPOINT')) {
+                        try {
+                            Log::info('Intentando conversión con endpoint HTTP externo...');
+                            $httpOutputPath = $this->convertDocxToPdfWithLibreOffice($docxAbsPath, $tempStorageDir);
+                            
+                            if (!empty($httpOutputPath) && file_exists($httpOutputPath) && @filesize($httpOutputPath) > 1024) {
+                                // Mover a tempPdfPath para guardado unificado
+                                if (@rename($httpOutputPath, $tempPdfPath) || @copy($httpOutputPath, $tempPdfPath)) {
+                                    if ($httpOutputPath !== $tempPdfPath) { @unlink($httpOutputPath); }
+                                    $pdfGenerated = true;
+                                    $usedEngine = 'HTTP-Endpoint-External';
+                                    Log::info('PDF generado exitosamente con endpoint HTTP externo', [
+                                        'pdf_path' => $tempPdfPath, 
+                                        'size_kb' => round(filesize($tempPdfPath)/1024, 2)
+                                    ]);
+                                } else {
+                                    Log::warning('No se pudo mover el PDF generado por endpoint HTTP');
+                                }
+                            } else {
+                                Log::warning('Endpoint HTTP externo no generó un PDF válido');
+                            }
+                        } catch (\Throwable $httpErr) {
+                            Log::warning('Endpoint HTTP externo no disponible o falló: ' . $httpErr->getMessage());
+                        }
+                    }
+                    */
+                    
+                    // 3) Fallback a Microsoft Word COM si está disponible (solo Windows)
+                    if (!$pdfGenerated && $this->hasMsWordCom()) {
+                        try {
+                            Log::info('Intentando conversión con Microsoft Word COM...');
                             $title = trim(($company->nombre ?? 'Empresa') . ' - ' . ($program->nombre ?? 'Programa'));
                             $this->convertDocxToPdfWithMsWord($docxAbsPath, $tempPdfPath, $title, $company->nombre ?? null);
                             if (file_exists($tempPdfPath) && filesize($tempPdfPath) > 1024) {
@@ -1132,43 +1229,14 @@ class ProgramController extends Controller
                                 $usedEngine = 'MsWord';
                                 Log::info('PDF exportado con Microsoft Word COM', ['pdf_path' => $tempPdfPath, 'size_kb' => round(filesize($tempPdfPath)/1024,2)]);
                             } else {
-                                Log::warning('Microsoft Word COM no generó un PDF válido, se intentará LibreOffice');
+                                Log::warning('Microsoft Word COM no generó un PDF válido');
                             }
                         } catch (\Throwable $mw) {
                             Log::warning('Fallo conversión con Microsoft Word COM: ' . $mw->getMessage());
                         }
                     }
 
-                    // 2) Usar endpoint HTTP para conversión DOCX → PDF (rápido y fiel a estilos)
-                    if (!$pdfGenerated) {
-                        try {
-                            Log::info('Convirtiendo a PDF con endpoint HTTP...');
-                            
-                            Log::info('Ruta DOCX absoluta: ' . $docxAbsPath);
-                            Log::info('Directorio de salida: ' . $tempStorageDir);
-                            
-                            $httpOutputPath = $this->convertDocxToPdfWithLibreOffice($docxAbsPath, $tempStorageDir);
-
-                            if (!empty($httpOutputPath) && file_exists($httpOutputPath) && @filesize($httpOutputPath) > 1024) {
-                                // Mover a tempPdfPath para guardado unificado
-                                if (@rename($httpOutputPath, $tempPdfPath) || @copy($httpOutputPath, $tempPdfPath)) {
-                                    if ($httpOutputPath !== $tempPdfPath) { @unlink($httpOutputPath); }
-                                    $pdfGenerated = true;
-                                    $usedEngine = 'HTTP-Endpoint';
-                                    Log::info('PDF generado exitosamente con endpoint HTTP', ['pdf_path' => $tempPdfPath, 'size_kb' => round(filesize($tempPdfPath)/1024, 2)]);
-                                } else {
-                                    Log::error('No se pudo mover el PDF generado por endpoint HTTP', ['from' => $httpOutputPath, 'to' => $tempPdfPath]);
-                                }
-                            } else {
-                                Log::warning('Endpoint HTTP no devolvió un PDF válido');
-                            }
-                        } catch (\Throwable $httpErr) {
-                            Log::error('Conversión con endpoint HTTP falló: ' . $httpErr->getMessage());
-                            Log::error('Stack trace: ' . $httpErr->getTraceAsString());
-                        }
-                    }
-                    
-                    // Si no se generó aún, probar último recurso: DOCX -> HTML -> PDF (baja fidelidad)
+                    // 4) Último recurso: DOCX -> HTML -> PDF con DomPDF (baja fidelidad)
                     if (!$pdfGenerated) {
                         try {
                             Log::info('Intentando fallback HTML->PDF con PhpWord + Dompdf (baja fidelidad)');
@@ -1375,7 +1443,7 @@ class ProgramController extends Controller
     }
 
     /**
-     * Convertir DOCX a PDF usando endpoint HTTP de conversión
+     * Convertir DOCX a PDF usando endpoint HTTP externo de conversión
      */
     private function convertDocxToPdfWithLibreOffice(string $docxPath, string $outputDir): ?string
     {
@@ -1387,24 +1455,158 @@ class ProgramController extends Controller
             throw new \RuntimeException("Directorio de salida no existe: {$outputDir}");
         }
 
-        $conversionEndpoint = env('PDF_CONVERSION_ENDPOINT', 'http://178.16.141.125:5050/convert');
+        // Aumentar el tiempo de ejecución máximo para esta operación
+        set_time_limit(300); // 5 minutos
         
-        Log::info('Convirtiendo DOCX a PDF usando endpoint HTTP', [
-            'endpoint' => $conversionEndpoint,
-            'docx' => $docxPath
+        // Intentar con ConvertAPI primero (método principal)
+        $pdfPath = $this->tryConvertWithConvertAPI($docxPath, $outputDir);
+        if ($pdfPath) {
+            return $pdfPath;
+        }
+
+        // Fallback: Intentar con endpoint externo
+        $externalEndpoint = env('PDF_CONVERSION_ENDPOINT');
+        if ($externalEndpoint) {
+            Log::warning('ConvertAPI falló, intentando con endpoint fallback', [
+                'endpoint' => $externalEndpoint
+            ]);
+            $pdfPath = $this->tryConvertWithExternalEndpoint($docxPath, $outputDir, $externalEndpoint);
+            if ($pdfPath) {
+                return $pdfPath;
+            }
+        }
+
+        // Fallback final: MS Word COM (solo Windows)
+        if (PHP_OS_FAMILY === 'Windows') {
+            Log::warning('Endpoints HTTP fallaron, intentando con MS Word COM');
+            return $this->tryConvertWithMsWord($docxPath, $outputDir);
+        }
+
+        Log::error('Todos los métodos de conversión fallaron');
+        return null;
+    }
+
+    /**
+     * Convierte DOCX a PDF usando ConvertAPI (método principal)
+     */
+    private function tryConvertWithConvertAPI(string $docxPath, string $outputDir): ?string
+    {
+        $apiSecret = env('CONVERT_API_SECRET');
+        
+        if (empty($apiSecret)) {
+            Log::warning('CONVERT_API_SECRET no configurado, saltando ConvertAPI');
+            return null;
+        }
+
+        $apiUrl = 'https://v2.convertapi.com/convert/docx/to/pdf';
+        
+        Log::info('Convirtiendo DOCX a PDF usando ConvertAPI', [
+            'docx' => basename($docxPath),
+            'api_url' => $apiUrl
         ]);
 
         $startTime = microtime(true);
 
         try {
-            // Crear cliente HTTP con Guzzle
+            $client = new \GuzzleHttp\Client([
+                'timeout' => 120, // 2 minutos timeout
+                'verify' => true, // ConvertAPI usa SSL válido
+            ]);
+
+            // Preparar la petición según la documentación de ConvertAPI
+            $response = $client->post($apiUrl, [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $apiSecret,
+                ],
+                'multipart' => [
+                    [
+                        'name' => 'StoreFile',
+                        'contents' => 'true'
+                    ],
+                    [
+                        'name' => 'File',
+                        'contents' => fopen($docxPath, 'r'),
+                        'filename' => basename($docxPath),
+                    ]
+                ]
+            ]);
+
+            $execTime = round(microtime(true) - $startTime, 2);
+
+            if ($response->getStatusCode() !== 200) {
+                throw new \RuntimeException('ConvertAPI retornó código ' . $response->getStatusCode());
+            }
+
+            // ConvertAPI retorna JSON con información del archivo convertido
+            $result = json_decode($response->getBody()->getContents(), true);
+            
+            if (!isset($result['Files'][0]['Url'])) {
+                throw new \RuntimeException('ConvertAPI no retornó URL del PDF');
+            }
+
+            $pdfUrl = $result['Files'][0]['Url'];
+            
+            // Descargar el PDF desde ConvertAPI
+            $pdfResponse = $client->get($pdfUrl);
+            $pdfContent = $pdfResponse->getBody()->getContents();
+            
+            if (empty($pdfContent) || strlen($pdfContent) < 1024) {
+                throw new \RuntimeException('El PDF descargado está vacío o es demasiado pequeño');
+            }
+
+            $expectedPdfName = pathinfo($docxPath, PATHINFO_FILENAME) . '.pdf';
+            $expectedPdfPath = rtrim($outputDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $expectedPdfName;
+            
+            file_put_contents($expectedPdfPath, $pdfContent);
+
+            if (file_exists($expectedPdfPath) && @filesize($expectedPdfPath) > 1024) {
+                Log::info('PDF generado exitosamente con ConvertAPI', [
+                    'path' => $expectedPdfPath,
+                    'size_kb' => round(filesize($expectedPdfPath)/1024, 2),
+                    'time_seconds' => $execTime
+                ]);
+                return $expectedPdfPath;
+            } else {
+                throw new \RuntimeException('No se pudo guardar el PDF en el disco');
+            }
+
+        } catch (\GuzzleHttp\Exception\RequestException $e) {
+            $execTime = round(microtime(true) - $startTime, 2);
+            Log::error('Error al conectar con ConvertAPI', [
+                'error' => $e->getMessage(),
+                'time_seconds' => $execTime,
+                'response' => $e->hasResponse() ? $e->getResponse()->getBody()->getContents() : null
+            ]);
+            return null;
+        } catch (\Throwable $e) {
+            $execTime = round(microtime(true) - $startTime, 2);
+            Log::error('Error inesperado al usar ConvertAPI', [
+                'error' => $e->getMessage(),
+                'time_seconds' => $execTime
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Convierte DOCX a PDF usando endpoint externo (fallback)
+     */
+    private function tryConvertWithExternalEndpoint(string $docxPath, string $outputDir, string $endpoint): ?string
+    {
+        Log::info('Convirtiendo DOCX a PDF usando endpoint HTTP fallback', [
+            'endpoint' => $endpoint,
+            'docx' => basename($docxPath)
+        ]);
+
+        $startTime = microtime(true);
+
+        try {
             $client = new \GuzzleHttp\Client([
                 'timeout' => 120, // 2 minutos timeout
                 'verify' => false, // Deshabilitar verificación SSL si es necesario
             ]);
 
-            // Preparar multipart/form-data con el archivo DOCX
-            $response = $client->post($conversionEndpoint, [
+            $response = $client->post($endpoint, [
                 'multipart' => [
                     [
                         'name' => 'file',
@@ -1417,10 +1619,9 @@ class ProgramController extends Controller
             $execTime = round(microtime(true) - $startTime, 2);
 
             if ($response->getStatusCode() !== 200) {
-                throw new \RuntimeException('Endpoint de conversión retornó código ' . $response->getStatusCode());
+                throw new \RuntimeException('Endpoint retornó código ' . $response->getStatusCode());
             }
 
-            // Guardar el PDF recibido
             $pdfContent = $response->getBody()->getContents();
             
             if (empty($pdfContent) || strlen($pdfContent) < 1024) {
@@ -1433,7 +1634,8 @@ class ProgramController extends Controller
             file_put_contents($expectedPdfPath, $pdfContent);
 
             if (file_exists($expectedPdfPath) && @filesize($expectedPdfPath) > 1024) {
-                Log::info('PDF generado exitosamente vía endpoint HTTP', [
+                Log::info('PDF generado exitosamente con endpoint fallback', [
+                    'endpoint' => $endpoint,
                     'path' => $expectedPdfPath,
                     'size_kb' => round(filesize($expectedPdfPath)/1024, 2),
                     'time_seconds' => $execTime
@@ -1443,24 +1645,62 @@ class ProgramController extends Controller
                 throw new \RuntimeException('No se pudo guardar el PDF en el disco');
             }
 
-        } catch (\GuzzleHttp\Exception\RequestException $e) {
-            $execTime = round(microtime(true) - $startTime, 2);
-            Log::error('Error al conectar con endpoint de conversión', [
-                'endpoint' => $conversionEndpoint,
-                'error' => $e->getMessage(),
-                'time_seconds' => $execTime
-            ]);
-            throw new \RuntimeException('Fallo en conversión HTTP: ' . $e->getMessage());
         } catch (\Throwable $e) {
             $execTime = round(microtime(true) - $startTime, 2);
-            Log::error('Error inesperado al convertir DOCX a PDF', [
+            Log::error('Error al usar endpoint fallback', [
+                'endpoint' => $endpoint,
                 'error' => $e->getMessage(),
                 'time_seconds' => $execTime
             ]);
-            throw $e;
+            return null;
+        }
+    }
+
+    /**
+     * Convierte DOCX a PDF usando MS Word COM (fallback final, solo Windows)
+     */
+    private function tryConvertWithMsWord(string $docxPath, string $outputDir): ?string
+    {
+        if (!extension_loaded('com_dotnet')) {
+            Log::warning('Extensión COM no disponible');
+            return null;
         }
 
-        return null;
+        $startTime = microtime(true);
+        
+        try {
+            $word = new \COM("Word.Application");
+            $word->Visible = false;
+            $word->DisplayAlerts = false;
+
+            $doc = $word->Documents->Open($docxPath);
+            
+            $expectedPdfName = pathinfo($docxPath, PATHINFO_FILENAME) . '.pdf';
+            $expectedPdfPath = rtrim($outputDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $expectedPdfName;
+            
+            $doc->SaveAs($expectedPdfPath, 17); // 17 = wdFormatPDF
+            $doc->Close(false);
+            $word->Quit();
+
+            $execTime = round(microtime(true) - $startTime, 2);
+
+            if (file_exists($expectedPdfPath)) {
+                Log::info('PDF generado con MS Word COM', [
+                    'path' => $expectedPdfPath,
+                    'time_seconds' => $execTime
+                ]);
+                return $expectedPdfPath;
+            }
+
+            return null;
+        } catch (\Throwable $e) {
+            $execTime = round(microtime(true) - $startTime, 2);
+            Log::error('Error al usar MS Word COM', [
+                'error' => $e->getMessage(),
+                'time_seconds' => $execTime
+            ]);
+            return null;
+        }
     }
 
     /**

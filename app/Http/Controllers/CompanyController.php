@@ -31,10 +31,6 @@ class CompanyController extends Controller
             'correo',
             'habilitado'
         ])->get()->map(function ($c) {
-            $logos = [];
-            if ($c->logo_derecho) { $logos[] = Storage::url($c->logo_derecho); }
-            if ($c->logo_izquierdo) { $logos[] = Storage::url($c->logo_izquierdo); }
-            if ($c->logo_pie_de_pagina) { $logos[] = Storage::url($c->logo_pie_de_pagina); }
             return [
                 'id' => $c->id,
                 'name' => $c->nombre,
@@ -47,7 +43,10 @@ class CompanyController extends Controller
                 'address' => $c->direccion,
                 'activities' => $c->actividades,
                 // Convert stored paths to public URLs so frontend can render images directly
-                'logos' => $logos,
+                'logo_izquierdo' => $c->logo_izquierdo ? Storage::url($c->logo_izquierdo) : null,
+                'logo_derecho' => $c->logo_derecho ? Storage::url($c->logo_derecho) : null,
+                'logo_pie_de_pagina' => $c->logo_pie_de_pagina ? Storage::url($c->logo_pie_de_pagina) : null,
+                'logos' => [], // Para compatibilidad (puede usarse en el futuro)
                 'email' => $c->correo,
                 'status' => $c->habilitado ? 'activa' : 'inactiva',
                 // programs se completará después
@@ -174,21 +173,22 @@ class CompanyController extends Controller
         if ($request->hasFile('logos')) {
             $logos = $request->file('logos');
             
-            // Eliminar logos antiguos si existen
-            if ($company->logo_izquierdo) Storage::disk('public')->delete($company->logo_izquierdo);
-            if ($company->logo_derecho) Storage::disk('public')->delete($company->logo_derecho);
-            if ($company->logo_pie_de_pagina) Storage::disk('public')->delete($company->logo_pie_de_pagina);
-
-            // Guardar nuevos logos
+            // Guardar nuevos logos (solo reemplazar los que se envían)
             if (isset($logos[0])) {
+                // Eliminar logo izquierdo anterior si existe
+                if ($company->logo_izquierdo) Storage::disk('public')->delete($company->logo_izquierdo);
                 $path = $logos[0]->store('logos', 'public');
                 $updateData['logo_izquierdo'] = $path;
             }
             if (isset($logos[1])) {
+                // Eliminar logo derecho anterior si existe
+                if ($company->logo_derecho) Storage::disk('public')->delete($company->logo_derecho);
                 $path = $logos[1]->store('logos', 'public');
                 $updateData['logo_derecho'] = $path;
             }
             if (isset($logos[2])) {
+                // Eliminar logo pie de página anterior si existe
+                if ($company->logo_pie_de_pagina) Storage::disk('public')->delete($company->logo_pie_de_pagina);
                 $path = $logos[2]->store('logos', 'public');
                 $updateData['logo_pie_de_pagina'] = $path;
             }

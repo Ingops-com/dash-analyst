@@ -14,6 +14,10 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { PlanillaSalubridad } from '@/components/PlanillaSalubridad';
 import { ProotTemplate } from '@/components/ProotTemplate';
+import { ProotTemplate2 } from '@/components/ProotTemplate2';
+import { ProotTemplate3 } from '@/components/ProotTemplate3';
+import { TemplateActaDeReunion } from '@/components/TemplateActaDeReunion';
+import { TemplateActaDesnaturalizacion } from '@/components/TemplateActaDesnaturalizacion';
 import html2canvas from 'html2canvas';
 import domtoimage from 'dom-to-image';
 
@@ -47,7 +51,10 @@ export default function ProgramView() {
     const planillaComponents: Record<string, any> = {
       PlanillaSalubridad,
       ProotTemplate,
-      // Agrega aquí más componentes si los tienes
+      ProotTemplate2,
+      ProotTemplate3,
+      TemplateActaDeReunion,
+      TemplateActaDesnaturalizacion,
     };
   // Usar props enviados por el servidor si existen
   const { props } = usePage()

@@ -99,7 +99,10 @@ export function AddAnnexDialog({ isOpen, onClose, programs, annex = null }: AddA
     const planillaViews = [
         { name: 'PlanillaSalubridad', label: 'Salubridad' },
         { name: 'ProotTemplate', label: 'Monitoreo - Saneamiento Básico' },
-        // Agrega aquí más componentes de planilla
+        { name: 'ProotTemplate2', label: 'Formato de Monitoreo y Control' },
+        { name: 'ProotTemplate3', label: 'Formato de Inspección y Reporte' },
+        { name: 'TemplateActaDeReunion', label: 'Acta de Reunión' },
+        { name: 'TemplateActaDesnaturalizacion', label: 'Acta de Desnaturalización' },
     ];
 
     const handlePlanillaViewChange = (view: string) => {
@@ -212,7 +215,7 @@ export function AddAnnexDialog({ isOpen, onClose, programs, annex = null }: AddA
 
     return (
         <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
                 <DialogHeader>
                         <DialogTitle>{annex ? 'Editar Anexo' : 'Agregar Nuevo Anexo'}</DialogTitle>
                     <DialogDescription>
@@ -221,7 +224,7 @@ export function AddAnnexDialog({ isOpen, onClose, programs, annex = null }: AddA
                 </DialogHeader>
 
                 {/* Annex Details */}
-                <div className="grid gap-4 py-2">
+                <div className="grid gap-4 py-2 overflow-y-auto pr-2">
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="nombre" className="text-right">Nombre</Label>
                         <div className="col-span-3">
