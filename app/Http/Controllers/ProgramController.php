@@ -840,14 +840,15 @@ class ProgramController extends Controller
                                 $uniquePath = $this->createUniqueImageCopy($completeImagePath);
                                 $tempImagePaths[] = $uniquePath;
                                 
-                                // Insertar con tamaño exacto
+                                // Insertar con tamaño exacto y centrado
                                 $templateProcessor->setImageValue($placeholder, [
                                     'path' => $uniquePath,
-                                    'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
-                                    'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                    'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16),
+                                    'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16),
                                     'ratio' => false,
                                     'wrappingStyle' => 'inline',
                                     'positioning' => 'relative',
+                                    'posHorizontal' => \PhpOffice\PhpWord\Style\Image::POSITION_HORIZONTAL_CENTER,
                                     'posHorizontalRel' => 'margin',
                                     'posVerticalRel' => 'line'
                                 ]);
@@ -860,11 +861,12 @@ class ProgramController extends Controller
                                 
                                 $templateProcessor->setImageValue($placeholder, [
                                     'path' => $uniquePath,
-                                    'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
-                                    'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                    'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16),
+                                    'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16),
                                     'ratio' => false,
                                     'wrappingStyle' => 'inline',
                                     'positioning' => 'relative',
+                                    'posHorizontal' => \PhpOffice\PhpWord\Style\Image::POSITION_HORIZONTAL_CENTER,
                                     'posHorizontalRel' => 'margin',
                                     'posVerticalRel' => 'line'
                                 ]);
@@ -878,11 +880,12 @@ class ProgramController extends Controller
                             
                             $templateProcessor->setImageValue($placeholder, [
                                 'path' => $uniquePath,
-                                'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
-                                'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16),
+                                'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16),
                                 'ratio' => false,
                                 'wrappingStyle' => 'inline',
                                 'positioning' => 'relative',
+                                'posHorizontal' => \PhpOffice\PhpWord\Style\Image::POSITION_HORIZONTAL_CENTER,
                                 'posHorizontalRel' => 'margin',
                                 'posVerticalRel' => 'line'
                             ]);
@@ -925,13 +928,14 @@ class ProgramController extends Controller
                                     $uniquePath = $this->createUniqueImageCopy($combinedImagePath);
                                     $tempImagePaths[] = $uniquePath;
                                     
-                                    // Insertar imagen combinada
+                                    // Insertar imagen combinada centrada
                                     $templateProcessor->setImageValue($placeholder, [
                                         'path' => $uniquePath,
-                                        'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                        'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16),
                                         'ratio' => true,
                                         'wrappingStyle' => 'inline',
                                         'positioning' => 'relative',
+                                        'posHorizontal' => \PhpOffice\PhpWord\Style\Image::POSITION_HORIZONTAL_CENTER,
                                         'posHorizontalRel' => 'margin',
                                         'posVerticalRel' => 'line'
                                     ]);
@@ -944,11 +948,12 @@ class ProgramController extends Controller
                                     
                                     $templateProcessor->setImageValue($placeholder, [
                                         'path' => $uniquePath,
-                                        'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
-                                        'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                                        'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16),
+                                        'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16),
                                         'ratio' => false,
                                         'wrappingStyle' => 'inline',
                                         'positioning' => 'relative',
+                                        'posHorizontal' => \PhpOffice\PhpWord\Style\Image::POSITION_HORIZONTAL_CENTER,
                                         'posHorizontalRel' => 'margin',
                                         'posVerticalRel' => 'line'
                                     ]);
@@ -1004,13 +1009,14 @@ class ProgramController extends Controller
                             'num_imagenes' => count($annexImages)
                         ]);
                         
-                        // Imagen combinada cuadrada - usar ancho completo con ratio para mantener proporciones
+                        // Imagen combinada - centrada con ratio para mantener proporciones
                         $templateProcessor->setImageValue($placeholder, [
                             'path' => $finalImagePath,
-                            'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                            'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16),
                             'ratio' => true, // Mantener proporciones - altura se calculará automáticamente
                             'wrappingStyle' => 'inline',
                             'positioning' => 'relative',
+                            'posHorizontal' => \PhpOffice\PhpWord\Style\Image::POSITION_HORIZONTAL_CENTER,
                             'posHorizontalRel' => 'margin',
                             'posVerticalRel' => 'line'
                         ]);
@@ -1020,14 +1026,15 @@ class ProgramController extends Controller
                         $tempImagePaths[] = $finalImagePath;
                         Log::info("Anexo solo metadata (sin imágenes subidas): {$annexInfo?->nombre}");
                         
-                        // Metadata sola - forzar cuadrado
+                        // Metadata sola - forzar cuadrado y centrado
                         $templateProcessor->setImageValue($placeholder, [
                             'path' => $finalImagePath,
-                            'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
-                            'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(18),
+                            'width' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16),
+                            'height' => \PhpOffice\PhpWord\Shared\Converter::cmToPixel(16),
                             'ratio' => false, // No ratio para mantener cuadrado exacto
                             'wrappingStyle' => 'inline',
                             'positioning' => 'relative',
+                            'posHorizontal' => \PhpOffice\PhpWord\Style\Image::POSITION_HORIZONTAL_CENTER,
                             'posHorizontalRel' => 'margin',
                             'posVerticalRel' => 'line'
                         ]);
