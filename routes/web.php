@@ -11,13 +11,20 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\MasterListController;
 use App\Http\Controllers\UserDocumentsController;
 use App\Http\Controllers\UserDocumentController;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
+use App\Http\Controllers\ReminderController;
 
 Route::redirect('/', '/login');
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    
+    // Rutas del módulo de Recordatorios/Calendario
+    Route::resource('reminders', ReminderController::class);
+    Route::get('/reminders/calendar/events', [ReminderController::class, 'calendar'])->name('reminders.calendar');
+    Route::get('/reminders-notifications', [ReminderController::class, 'notifications'])->name('reminders.notifications');
+    Route::post('/reminders-notifications/{id}/read', [ReminderController::class, 'markAsRead'])->name('reminders.notifications.read');
+    Route::post('/reminders-notifications/read-all', [ReminderController::class, 'markAllAsRead'])->name('reminders.notifications.readAll');
+    
     Route::get('/lista-empresas', [CompanyController::class, 'index'])->name('companies');
     // Allow both PUT and POST for update to avoid method spoofing issues with FormData in some environments
     Route::match(['put', 'post'], '/companies/{id}', [CompanyController::class, 'update'])->name('companies.update');

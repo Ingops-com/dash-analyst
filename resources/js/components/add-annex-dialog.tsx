@@ -38,6 +38,7 @@ interface AddAnnexDialogProps {
         codigo_anexo: string;
         placeholder?: string;
         content_type?: string;
+        planilla_view?: string;
         tipo: string;
         programIds?: number[];
         table_columns?: string[];
@@ -50,6 +51,7 @@ interface AnnexFormData {
     codigo_anexo: string;
     placeholder: string;
     content_type: string;
+    planilla_view?: string;
     tipo: string;
     programIds: number[];
     table_columns: string[];
@@ -61,6 +63,7 @@ const defaultFormState: AnnexFormData = {
     codigo_anexo: '',
     placeholder: '',
     content_type: 'image',
+    planilla_view: '',
     tipo: 'ISO 22000',
     programIds: [],
     table_columns: [],
@@ -70,13 +73,12 @@ const defaultFormState: AnnexFormData = {
 const tipos = ['ISO 22000', 'PSB', 'Invima'];
 
 export function AddAnnexDialog({ isOpen, onClose, programs, annex = null }: AddAnnexDialogProps) {
-    const [formData, setFormData] = useState(defaultFormState);
+    const [formData, setFormData] = useState({ ...defaultFormState, planilla_view: '' });
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         if (isOpen && annex) {
-            // Edit mode - populate form with annex data
             setFormData({
                 nombre: annex.nombre || '',
                 codigo_anexo: annex.codigo_anexo || '',
@@ -86,13 +88,23 @@ export function AddAnnexDialog({ isOpen, onClose, programs, annex = null }: AddA
                 programIds: annex.programIds || [],
                 table_columns: annex.table_columns || [],
                 table_header_color: annex.table_header_color || '#153366',
+                planilla_view: annex.planilla_view || '',
             });
         } else if (!isOpen) {
-            // Reset form when dialog closes
-            setFormData(defaultFormState);
+            setFormData({ ...defaultFormState, planilla_view: '' });
             setErrors({});
         }
     }, [isOpen, annex]);
+    // Lista de vistas de planilla disponibles (puedes agregar más componentes aquí)
+    const planillaViews = [
+        { name: 'PlanillaSalubridad', label: 'Salubridad' },
+        { name: 'ProotTemplate', label: 'Monitoreo - Saneamiento Básico' },
+        // Agrega aquí más componentes de planilla
+    ];
+
+    const handlePlanillaViewChange = (view: string) => {
+        setFormData(prev => ({ ...prev, planilla_view: view }));
+    };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { id, value } = e.target;
@@ -257,12 +269,32 @@ export function AddAnnexDialog({ isOpen, onClose, programs, annex = null }: AddA
                                     <SelectItem value="image">Imagen</SelectItem>
                                     <SelectItem value="text">Texto</SelectItem>
                                     <SelectItem value="table">Tabla</SelectItem>
+                                    <SelectItem value="planilla">Planilla</SelectItem>
                                 </SelectContent>
                             </Select>
-                            <p className="text-xs text-muted-foreground mt-1">Define si el anexo contendrá una imagen, texto o tabla.</p>
+                            <p className="text-xs text-muted-foreground mt-1">Define si el anexo contendrá una imagen, texto, tabla o planilla.</p>
                             {errors.content_type && <p className="text-sm text-red-500 mt-1">{errors.content_type}</p>}
                         </div>
                     </div>
+                    {/* Selector de vista de planilla si el tipo es planilla */}
+                    {formData.content_type === 'planilla' && (
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">Vista de Planilla</Label>
+                            <div className="col-span-3 flex flex-col gap-2">
+                                {planillaViews.map(view => (
+                                    <div key={view.name} className="flex items-center gap-2">
+                                        <Checkbox
+                                            id={`planilla-view-${view.name}`}
+                                            checked={formData.planilla_view === view.name}
+                                            onCheckedChange={() => handlePlanillaViewChange(view.name)}
+                                        />
+                                        <Label htmlFor={`planilla-view-${view.name}`}>{view.label}</Label>
+                                    </div>
+                                ))}
+                                <p className="text-xs text-muted-foreground mt-1">Selecciona la vista que corresponde a la planilla que debe llenar el usuario.</p>
+                            </div>
+                        </div>
+                    )}
                     {/* --- FIELD CHANGED HERE --- */}
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="tipo" className="text-right">Tipo</Label>

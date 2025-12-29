@@ -89,6 +89,72 @@ class ProgramController extends Controller
         return $text;
     }
 
+    private function saveScreenshot($dataUrl, $companyId, $programId, $annexId, $annexName = null)
+    {
+        try {
+            if (empty($dataUrl)) {
+                throw new \Exception('Screenshot data is empty');
+            }
+
+            Log::info('Saving screenshot', [
+                'company_id' => $companyId,
+                'program_id' => $programId,
+                'annex_id' => $annexId,
+                'annex_name' => $annexName,
+                'data_url_length' => strlen($dataUrl),
+                'data_url_start' => substr($dataUrl, 0, 50),
+            ]);
+
+            // Decodificar el Data URL
+            if (strpos($dataUrl, 'data:image/png;base64,') === 0) {
+                $imageData = base64_decode(str_replace('data:image/png;base64,', '', $dataUrl));
+            } else {
+                throw new \Exception('Invalid screenshot format: ' . substr($dataUrl, 0, 100));
+            }
+
+            if (empty($imageData)) {
+                throw new \Exception('Failed to decode image data');
+            }
+
+            // Usar el nombre del anexo o generar uno por defecto
+            if ($annexName) {
+                // Limpiar el nombre del anexo: remover caracteres especiales
+                $cleanName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $annexName);
+                $fileName = $cleanName . '.png';
+            } else {
+                $fileName = 'screenshot_' . uniqid() . '.png';
+            }
+            
+            $storagePath = "planilla-screenshots/company_{$companyId}/program_{$programId}";
+            $fullPath = "{$storagePath}/{$fileName}";
+            
+            // Guardar el archivo en el disco 'public'
+            $saved = Storage::disk('public')->put($fullPath, $imageData);
+            
+            if (!$saved) {
+                throw new \Exception('Failed to save file to storage');
+            }
+
+            Log::info('Screenshot saved successfully', [
+                'company_id' => $companyId,
+                'program_id' => $programId,
+                'annex_id' => $annexId,
+                'file_path' => $fullPath,
+                'file_size' => strlen($imageData),
+            ]);
+
+            return $fullPath;
+        } catch (\Exception $e) {
+            Log::error('Error saving screenshot: ' . $e->getMessage(), [
+                'company_id' => $companyId,
+                'program_id' => $programId,
+                'annex_id' => $annexId,
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        }
+    }
+
     public function uploadAnnex(Request $request, $programId, $annexId)
     {
         // Verificar el tipo de anexo
@@ -97,6 +163,7 @@ class ProgramController extends Controller
         // Determinar el tipo de contenido a procesar
         $treatAsText = ($annex->content_type === 'text') || ($request->has('content_text') && !$request->hasFile('file'));
         $treatAsTable = ($annex->content_type === 'table') || $request->has('table_data');
+        $treatAsPlanilla = ($annex->content_type === 'planilla') || $request->has('planilla_data');
 
         Log::info('uploadAnnex called', [
             'program_id' => $programId,
@@ -105,8 +172,10 @@ class ProgramController extends Controller
             'has_file' => $request->hasFile('file'),
             'has_content_text' => $request->has('content_text'),
             'has_table_data' => $request->has('table_data'),
+            'has_planilla_data' => $request->has('planilla_data'),
             'treat_as_text' => $treatAsText,
             'treat_as_table' => $treatAsTable,
+            'treat_as_planilla' => $treatAsPlanilla,
         ]);
 
         if ($treatAsTable) {
@@ -177,6 +246,114 @@ class ProgramController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'Error al guardar la tabla: ' . $e->getMessage(),
+                ], 500);
+            }
+        } elseif ($treatAsPlanilla) {
+            // Validar para anexos tipo planilla
+            try {
+                $validated = $request->validate([
+                    'company_id' => 'required|exists:companies,id',
+                    'planilla_data' => 'required|array',
+                    'screenshot_data' => 'nullable|string', // Data URL del screenshot
+                    'screenshot_filename' => 'nullable|string', // Nombre del anexo para el archivo
+                ]);
+            } catch (ValidationException $ve) {
+                Log::warning('Validation failed for planilla annex', [
+                    'errors' => $ve->errors(),
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validación fallida',
+                    'errors' => $ve->errors(),
+                ], 422);
+            }
+
+            try {
+                // Buscar si ya existe una submission para este anexo
+                $submission = CompanyAnnexSubmission::where([
+                    'company_id' => $validated['company_id'],
+                    'program_id' => $programId,
+                    'annex_id' => $annexId,
+                ])->first();
+
+                // Convertir los datos de la planilla a JSON
+                $planillaDataJson = json_encode($validated['planilla_data']);
+                
+                // Obtener el nombre del anexo desde la solicitud o de la base de datos
+                $annexName = $validated['screenshot_filename'] ?? null;
+                if (!$annexName) {
+                    $annex = Annex::find($annexId);
+                    $annexName = $annex ? $annex->name : null;
+                }
+                
+                // Procesar y guardar el screenshot si existe
+                $screenshotPath = null;
+                if (!empty($validated['screenshot_data'])) {
+                    Log::info('Processing screenshot for planilla', [
+                        'has_screenshot_data' => !empty($validated['screenshot_data']),
+                        'screenshot_data_length' => strlen($validated['screenshot_data'] ?? ''),
+                        'annex_name' => $annexName,
+                    ]);
+                    try {
+                        $screenshotPath = $this->saveScreenshot(
+                            $validated['screenshot_data'],
+                            $validated['company_id'],
+                            $programId,
+                            $annexId,
+                            $annexName
+                        );
+                    } catch (\Exception $e) {
+                        Log::warning('Error saving screenshot: ' . $e->getMessage());
+                        // Continuar aunque falle el screenshot
+                    }
+                } else {
+                    Log::info('No screenshot data provided for planilla', [
+                        'company_id' => $validated['company_id'],
+                        'program_id' => $programId,
+                        'annex_id' => $annexId,
+                    ]);
+                }
+
+                if ($submission) {
+                    // Actualizar el contenido existente
+                    $submission->update([
+                        'content_text' => $planillaDataJson,
+                        'screenshot_path' => $screenshotPath,
+                        'status' => 'Pendiente',
+                        'submitted_by' => Auth::id(),
+                    ]);
+                } else {
+                    // Crear nueva submission
+                    $submission = CompanyAnnexSubmission::create([
+                        'company_id' => $validated['company_id'],
+                        'program_id' => $programId,
+                        'annex_id' => $annexId,
+                        'content_text' => $planillaDataJson,
+                        'screenshot_path' => $screenshotPath,
+                        'file_path' => null,
+                        'file_name' => null,
+                        'mime_type' => 'application/json',
+                        'file_size' => strlen($planillaDataJson),
+                        'status' => 'Pendiente',
+                        'submitted_by' => Auth::id(),
+                    ]);
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Planilla guardada exitosamente',
+                    'submission' => [
+                        'id' => $submission->id,
+                        'planilla_data' => $validated['planilla_data'],
+                        'screenshot_path' => $screenshotPath,
+                        'mime' => 'application/json',
+                    ],
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error saving planilla annex: ' . $e->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al guardar la planilla: ' . $e->getMessage(),
                 ], 500);
             }
         } elseif ($treatAsText) {
@@ -3036,9 +3213,12 @@ class ProgramController extends Controller
             $files = [];
             $contentText = null;
             $tableData = null;
+            $planillaData = null;
+            $screenshotPath = null;
             $uploadedAt = null;
             $hasTextSubmission = false;
             $hasTableSubmission = false;
+            $hasPlanillaSubmission = false;
             
             if ($companyId) {
                 $subs = CompanyAnnexSubmission::where('company_id', $companyId)
@@ -3048,8 +3228,16 @@ class ProgramController extends Controller
                     ->get();
 
                 foreach ($subs as $s) {
-                    // Priorizar contenido de texto/tabla si existe en la submission
+                    // Priorizar contenido de texto/tabla/planilla si existe en la submission
                     if (!empty($s->content_text)) {
+                        // Si el anexo es tipo planilla, parsear JSON
+                        if ($a->content_type === 'planilla') {
+                            $hasPlanillaSubmission = true;
+                            $planillaData = json_decode($s->content_text, true);
+                            $screenshotPath = $s->screenshot_path;
+                            $uploadedAt = $s->updated_at ? $s->updated_at->format('Y-m-d H:i') : ($s->created_at ? $s->created_at->format('Y-m-d H:i') : null);
+                            continue;
+                        }
                         // Si el anexo es tipo tabla, parsear JSON
                         if ($a->content_type === 'table') {
                             $hasTableSubmission = true;
@@ -3057,7 +3245,7 @@ class ProgramController extends Controller
                             $uploadedAt = $s->updated_at ? $s->updated_at->format('Y-m-d H:i') : ($s->created_at ? $s->created_at->format('Y-m-d H:i') : null);
                             continue;
                         }
-                        // Si no es tabla, es texto plano
+                        // Si no es tabla ni planilla, es texto plano
                         $hasTextSubmission = true;
                         $contentText = $s->content_text;
                         $uploadedAt = $s->updated_at ? $s->updated_at->format('Y-m-d H:i') : ($s->created_at ? $s->created_at->format('Y-m-d H:i') : null);
@@ -3104,19 +3292,22 @@ class ProgramController extends Controller
                 $type = 'IMAGES';
             }
 
-            // content_type efectivo para el frontend: si hay submission de texto/tabla, marcar apropiadamente
-            $effectiveContentType = $hasTextSubmission ? 'text' : ($hasTableSubmission ? 'table' : ($a->content_type ?? 'image'));
+            // content_type efectivo para el frontend: si hay submission de texto/tabla/planilla, marcar apropiadamente
+            $effectiveContentType = $hasTextSubmission ? 'text' : ($hasTableSubmission ? 'table' : ($hasPlanillaSubmission ? 'planilla' : ($a->content_type ?? 'image')));
 
             return [
                 'id' => $a->id,
                 'name' => $a->nombre,
                 'code' => $a->codigo_anexo,
                 'type' => $type,
-                'content_type' => $effectiveContentType, // Incluir content_type (image/text/table)
+                'content_type' => $effectiveContentType, // Incluir content_type (image/text/table/planilla)
+                'planilla_view' => $a->planilla_view,
                 'content_text' => $contentText, // Incluir texto si existe
                 'table_columns' => $a->table_columns, // Configuración de columnas para tabla
                 'table_header_color' => $a->table_header_color, // Color de cabecera para tabla
                 'table_data' => $tableData, // Datos de la tabla parseados
+                'planilla_data' => $planillaData, // Datos de la planilla parseados
+                'screenshot_path' => $screenshotPath, // Ruta del screenshot de la planilla
                 'uploaded_at' => $uploadedAt,
                 'files' => $files,
             ];
