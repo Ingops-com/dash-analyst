@@ -22,6 +22,7 @@ import {
     Settings as SettingsIcon,
     BookOpen,
     Calendar,
+    MessageSquare,
 } from 'lucide-react';
 import AppLogo from './app-logo';
 
@@ -45,6 +46,11 @@ export function AppSidebar() {
             title: 'Recordatorios',
             href: '/reminders',
             icon: Calendar,
+        },
+        {
+            title: 'Chats',
+            href: '/chats',
+            icon: MessageSquare,
         },
         {
             title: 'Configuración',

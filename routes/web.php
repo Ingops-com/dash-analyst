@@ -12,6 +12,7 @@ use App\Http\Controllers\MasterListController;
 use App\Http\Controllers\UserDocumentsController;
 use App\Http\Controllers\UserDocumentController;
 use App\Http\Controllers\ReminderController;
+use App\Http\Controllers\ChatController;
 
 Route::redirect('/', '/login');
 
@@ -96,6 +97,12 @@ Route::middleware(['auth'])->group(function () {
     // Documentos de usuario: listado y vista por programa (con preview PDF)
     Route::get('/user/companies/{company}/documents', [UserDocumentController::class, 'index'])->name('user.company.documents');
     Route::get('/user/companies/{company}/programs/{program}/document', [UserDocumentController::class, 'show'])->name('user.company.program.document');
+
+    // Conversaciones internas
+    Route::get('/chats', [ChatController::class, 'index'])->name('chats.index');
+    Route::post('/chats', [ChatController::class, 'store'])->name('chats.store');
+    Route::get('/chats/{conversation}', [ChatController::class, 'show'])->name('chats.show');
+    Route::post('/chats/{conversation}/messages', [ChatController::class, 'storeMessage'])->name('chats.messages.store');
 
     // Enlace simple para usuarios finales: resuelve su primera empresa asignada
     Route::get('/mis-documentos', function () {

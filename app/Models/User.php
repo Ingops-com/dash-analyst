@@ -59,4 +59,16 @@ class User extends Authenticatable
     {
         return $this->hasMany(CompanyUserPermission::class);
     }
+
+    public function conversations(): BelongsToMany
+    {
+        return $this->belongsToMany(Conversation::class, 'conversation_user')
+            ->withPivot('last_read_at')
+            ->withTimestamps();
+    }
+
+    public function chatMessages(): HasMany
+    {
+        return $this->hasMany(ChatMessage::class, 'sender_id');
+    }
 }

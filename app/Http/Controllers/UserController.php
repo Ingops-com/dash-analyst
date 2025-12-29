@@ -121,7 +121,7 @@ class UserController extends Controller
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'username' => ['required', 'string', 'max:255', 'unique:users,username'],
+            'username' => ['nullable', 'string', 'max:255', 'unique:users,username'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:6'],
             'rol' => ['required', 'string'],
@@ -137,7 +137,8 @@ class UserController extends Controller
 
         $user = new User();
         $user->name = $validated['name'];
-        $user->username = $validated['username'];
+        $usernameValue = trim((string) ($validated['username'] ?? ''));
+        $user->username = $usernameValue !== '' ? $usernameValue : null;
         $user->email = $validated['email'];
         $user->rol = $validated['rol'];
         $user->password = $validated['password'];
@@ -189,7 +190,7 @@ class UserController extends Controller
 
         $validated = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
-            'username' => ['sometimes', 'string', 'max:255', Rule::unique('users', 'username')->ignore($user->id)],
+            'username' => ['sometimes', 'nullable', 'string', 'max:255', Rule::unique('users', 'username')->ignore($user->id)],
             'email' => ['sometimes', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'password' => ['nullable', 'string', 'min:6'],
             'rol' => ['sometimes', 'string'],
@@ -197,6 +198,11 @@ class UserController extends Controller
             'company_ids.*' => ['integer', 'exists:companies,id'],
             'permissions' => ['array'],
         ]);
+
+        if (array_key_exists('username', $validated)) {
+            $normalizedUsername = trim((string) ($validated['username'] ?? ''));
+            $validated['username'] = $normalizedUsername !== '' ? $normalizedUsername : null;
+        }
 
         if (array_key_exists('rol', $validated)) {
             $rolLower = strtolower($validated['rol']);
